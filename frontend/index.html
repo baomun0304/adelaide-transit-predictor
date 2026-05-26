@@ -1,0 +1,815 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Adelaide Transit Predictor</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+<style>
+  :root {
+    --bg:#0b1220; --panel:#0f1729; --card:#162033; --card2:#1c2742;
+    --line:#243149; --text:#e6edf7; --muted:#8a99b3; --dim:#5f6b85;
+    --accent:#38bdf8; --accent2:#0ea5e9;
+    --good:#22c55e; --warn:#f59e0b; --bad:#ef4444; --info:#60a5fa;
+    --radius:10px; --radius-sm:6px;
+  }
+  * { box-sizing: border-box; }
+  html, body { height:100%; }
+  body { margin:0; font-family: 'Inter', system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+         background: var(--bg); color: var(--text); font-size:14px; line-height:1.45;
+         -webkit-font-smoothing: antialiased; }
+
+  header { padding:10px 16px; background:var(--panel); display:flex; gap:10px; align-items:center;
+           border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  header h1 { margin:0; font-size:17px; letter-spacing:-0.01em; font-weight:600; }
+  header h1 .dot { display:inline-block; width:8px; height:8px; border-radius:50%;
+                   background:var(--accent); margin-right:8px; vertical-align:middle;
+                   box-shadow:0 0 8px var(--accent); }
+  header input, header button {
+    padding:7px 11px; border-radius:var(--radius-sm); border:1px solid var(--line);
+    background:var(--bg); color:var(--text); font: inherit; outline:none;
+    transition: border-color 0.15s;
+  }
+  header input:focus { border-color: var(--accent); }
+  header button { cursor:pointer; }
+  header button:hover { background:var(--card); border-color:var(--accent); }
+  #status { font-size:12px; color:var(--muted); }
+
+  main { display:flex; height: calc(100vh - 53px); }
+  #map { flex:1; }
+  aside { width: 400px; padding:18px; overflow-y:auto; background:var(--panel);
+          border-left:1px solid var(--line); }
+
+  /* Mobile: sidebar becomes a bottom sheet */
+  @media (max-width: 768px) {
+    header { padding:10px 12px; }
+    header h1 { font-size:15px; }
+    header input { flex:1; min-width:0; }
+    header button { padding:6px 10px; font-size:12px; }
+    main { flex-direction: column; height: calc(100vh - 50px); }
+    main > div:first-child { flex: 1; min-height: 200px; }
+    aside { width: 100%; max-height: 55vh; border-left: none;
+            border-top: 1px solid var(--line); padding: 14px; }
+    .map-status { top: 8px; font-size: 11px; padding: 4px 10px; }
+  }
+  aside::-webkit-scrollbar { width:8px; }
+  aside::-webkit-scrollbar-thumb { background:var(--card); border-radius:4px; }
+
+  .section { margin-bottom: 22px; }
+  .section h3 { margin: 0 0 10px; font-size: 11px; text-transform: uppercase;
+                color: var(--dim); letter-spacing: 0.08em; font-weight:600; }
+
+  .stop-header { margin-bottom:16px; }
+  .stop-name { font-weight:600; font-size: 18px; letter-spacing:-0.01em;
+               display:flex; align-items:center; gap:8px; }
+  .stop-meta { font-size:12px; color:var(--muted); margin-top:4px; }
+  .star { cursor:pointer; color:var(--dim); font-size: 22px; user-select:none;
+          line-height:1; transition: color 0.15s, transform 0.15s; }
+  .star:hover { transform: scale(1.15); }
+  .star.on { color: #fbbf24; }
+
+  /* Arrival cards */
+  .arrival {
+    background: var(--card); border:1px solid var(--line);
+    border-radius: var(--radius); padding: 12px; margin-bottom: 10px;
+    transition: border-color 0.15s, transform 0.15s;
+  }
+  .arrival:hover { border-color: var(--accent2); }
+  .a-top { display:flex; align-items:center; gap:10px; margin-bottom:8px; }
+  .a-route {
+    background: var(--accent); color:#001629; font-weight:700;
+    padding: 3px 10px; border-radius: var(--radius-sm); font-size:13px;
+    min-width: 44px; text-align:center; letter-spacing:0.01em;
+  }
+  .a-headsign { flex:1; font-weight:500; font-size:14px; min-width:0;
+                white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .a-time { font-variant-numeric: tabular-nums; font-weight:600; font-size:16px;
+            letter-spacing:-0.01em; }
+
+  .a-status { display:flex; align-items:center; gap:6px; font-size:13px; margin-bottom:6px; }
+  .live-dot { width:7px; height:7px; border-radius:50%; background:var(--good);
+              box-shadow:0 0 6px var(--good); animation: pulse 2s infinite; }
+  @keyframes pulse { 50% { opacity:0.45; } }
+  .sched-icon { color: var(--muted); font-size:13px; }
+
+  .a-pattern { font-size:12px; color:var(--muted); padding:6px 0;
+               border-top:1px solid var(--line); margin-top:6px; }
+
+  .a-leave {
+    margin-top:8px; padding:9px 11px; background: linear-gradient(135deg, rgba(56,189,248,0.12), rgba(56,189,248,0.05));
+    border: 1px solid rgba(56,189,248,0.3); border-radius: var(--radius-sm);
+  }
+  .a-leave .label { font-size:10px; text-transform:uppercase; color:var(--accent);
+                    letter-spacing:0.08em; font-weight:700; }
+  .a-leave .time { font-size:18px; font-weight:700; letter-spacing:-0.01em;
+                   font-variant-numeric: tabular-nums; color:var(--text); margin-top:2px; }
+  .a-leave .reason { font-size:11px; color:var(--muted); margin-top:2px; }
+
+  /* Status colors */
+  .delay-on   { color:var(--good); font-weight:500; }
+  .delay-late { color:var(--warn); font-weight:500; }
+  .delay-bad  { color:var(--bad);  font-weight:500; }
+
+  /* Per-route reliability cards */
+  .route-card {
+    background: var(--card); border:1px solid var(--line);
+    border-radius: var(--radius); padding: 10px 12px; margin-bottom: 8px;
+  }
+  .route-card .rc-top { display:flex; align-items:center; gap:10px; margin-bottom:4px; }
+  .route-card .rc-label { font-weight:500; font-size:13px; }
+  .route-card .rc-tip { font-size:11px; color:var(--muted); margin-top:2px; }
+  .route-card .rc-stats { font-size:11px; color:var(--dim); margin-top:4px; }
+
+  /* Time buckets */
+  .buckets { display: grid; grid-template-columns: repeat(4, 1fr);
+             gap: 5px; margin-top: 8px; }
+  .bucket {
+    background:var(--card2); padding:6px 4px; border-radius: var(--radius-sm);
+    text-align:center; font-size:11px; border:1px solid transparent;
+  }
+  .bucket .lab { color: var(--dim); font-size:10px; display:block; margin-bottom:2px;
+                 text-transform:uppercase; letter-spacing:0.04em; }
+  .bucket.worst { border-color: var(--bad); background: rgba(239,68,68,0.08); }
+  .bucket.best  { border-color: var(--good); background: rgba(34,197,94,0.08); }
+
+  /* Favorites */
+  .fav-item { display:flex; justify-content:space-between; align-items:center;
+              padding:8px 10px; border-radius:var(--radius-sm); cursor:pointer;
+              background:var(--card); border:1px solid var(--line); margin-bottom:6px;
+              transition: border-color 0.15s; }
+  .fav-item:hover { border-color: var(--accent); }
+  .fav-item .fav-name { font-size:13px; font-weight:500; }
+  .fav-item .rm { color:var(--dim); font-size:18px; line-height:1; }
+  .fav-item .rm:hover { color: var(--bad); }
+
+  /* Trip planner */
+  .planner-row { display:flex; gap:6px; margin-bottom:8px; }
+  .planner-row input { flex:1; padding:8px 10px; border-radius:var(--radius-sm);
+                       border:1px solid var(--line); background:var(--bg); color:var(--text); }
+  .planner-row input:focus { border-color: var(--accent); outline:none; }
+  .planner-row button { padding:8px 14px; border-radius:var(--radius-sm); border:1px solid var(--accent);
+                        background: var(--accent); color:#001629; font-weight:600; cursor:pointer; }
+  .planner-row button:hover { background: var(--accent2); }
+  .plan-opt { background:var(--card); padding:10px 12px; border-radius:var(--radius-sm);
+              border:1px solid var(--line); margin-bottom:6px; font-size:13px; }
+
+  .muted { color:var(--muted); font-size:13px; }
+  canvas { background:var(--card); border-radius:var(--radius); padding:8px;
+           border:1px solid var(--line); }
+  .legend { font-size:11px; color:var(--dim); margin-top:8px; }
+
+  /* Map - light, clean */
+  #map { background: #eef3f7; }
+  .leaflet-container { background: #eef3f7; font-family: inherit; }
+  .leaflet-control-zoom a {
+    background: #fff !important; color: #1f2937 !important;
+    border: 1px solid #d1d5db !important; transition: background 0.15s;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  }
+  .leaflet-control-zoom a:hover { background: #f3f4f6 !important; color: var(--accent2) !important; }
+  .leaflet-control-attribution {
+    background: rgba(255,255,255,0.85) !important; color: #4b5563 !important;
+    border-radius: 4px; padding: 2px 6px; font-size: 10px;
+  }
+  .leaflet-control-attribution a { color: var(--accent2) !important; }
+
+  /* Stop markers */
+  .stop-marker {
+    width: 14px; height: 14px; border-radius: 50%;
+    background: var(--accent); border: 2px solid #fff;
+    box-shadow: 0 0 0 1px var(--accent2), 0 2px 6px rgba(0,0,0,0.2);
+    transition: transform 0.12s, box-shadow 0.12s;
+  }
+  .stop-marker:hover {
+    transform: scale(1.4);
+    box-shadow: 0 0 0 2px var(--accent2), 0 0 14px rgba(56,189,248,0.7);
+  }
+  .stop-marker.selected {
+    background: #f59e0b; border-color: #fff;
+    box-shadow: 0 0 0 2px #f59e0b, 0 0 18px rgba(245,158,11,0.7);
+    transform: scale(1.5);
+  }
+  .stop-tooltip {
+    background: #fff !important; color: #111827 !important;
+    border: 1px solid #d1d5db !important; padding: 4px 8px !important;
+    border-radius: var(--radius-sm) !important; font-size: 12px !important;
+    font-weight: 500 !important; box-shadow: 0 4px 12px rgba(0,0,0,0.12) !important;
+  }
+  .stop-tooltip::before { display:none !important; }
+
+  /* User location marker (blue pulse, Google-Maps style) */
+  .user-marker { position: relative; width: 18px; height: 18px; }
+  .user-marker .core {
+    position: absolute; inset: 0; width: 18px; height: 18px; border-radius: 50%;
+    background: #2563eb; border: 3px solid #fff;
+    box-shadow: 0 0 0 1px rgba(37,99,235,0.5), 0 2px 8px rgba(0,0,0,0.25);
+    z-index: 2;
+  }
+  .user-marker .ring {
+    position: absolute; left: -8px; top: -8px; width: 34px; height: 34px;
+    border-radius: 50%; background: rgba(37,99,235,0.25);
+    animation: userPulse 2s ease-out infinite;
+  }
+  @keyframes userPulse {
+    0%   { transform: scale(0.6); opacity: 0.9; }
+    100% { transform: scale(1.8); opacity: 0; }
+  }
+
+  /* Marker cluster restyle */
+  .marker-cluster-small, .marker-cluster-medium, .marker-cluster-large {
+    background: rgba(56,189,248,0.2) !important;
+  }
+  .marker-cluster-small div, .marker-cluster-medium div, .marker-cluster-large div {
+    background: var(--accent) !important; color: #001629 !important;
+    font-weight: 700 !important; font-size: 12px !important;
+    border: 2px solid #0a1020 !important;
+  }
+
+  /* Status indicator (top of map area) */
+  .map-status {
+    position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+    background: rgba(255,255,255,0.95); color: #111827; padding: 6px 14px;
+    border-radius: 999px; font-size: 12px; font-weight: 500;
+    border: 1px solid #e5e7eb; backdrop-filter: blur(8px);
+    z-index: 500; pointer-events: none;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  }
+  .map-status .count { color: var(--accent2); font-weight: 700; }
+</style>
+</head>
+<body>
+<header>
+  <h1><span class="dot"></span>Adelaide Transit</h1>
+  <input id="search" placeholder="Search stop name..." />
+  <button id="locate">My location</button>
+</header>
+<main>
+  <div style="flex:1; position:relative;">
+    <div id="map" style="width:100%; height:100%;"></div>
+    <div class="map-status" id="status"><span class="count">0</span> stops visible · click any to see arrivals</div>
+  </div>
+  <aside id="panel">
+    <div class="section" id="fav-section">
+      <h3>Favorite stops</h3>
+      <div id="favs" class="muted">No favorites yet. Star a stop to add it.</div>
+    </div>
+    <div class="section" id="stop-section">
+      <h3>Stop details</h3>
+      <div class="muted">Pick a stop to see live arrivals.</div>
+    </div>
+  </aside>
+</main>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script>
+const API = "http://localhost:8000";
+const map = L.map("map", { zoomControl: true, attributionControl: true })
+  .setView([-34.9285, 138.6007], 14);
+
+// CartoDB Voyager — light, soft tone, clean labels, no shop/restaurant clutter
+L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
+  maxZoom: 19,
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>'
+}).addTo(map);
+
+const stopLayer = L.markerClusterGroup({
+  maxClusterRadius: 45,
+  showCoverageOnHover: false,
+  spiderfyOnMaxZoom: true,
+  disableClusteringAtZoom: 17,
+});
+map.addLayer(stopLayer);
+
+let currentStop = null;
+let currentMarker = null;
+let reliabilityChart = null;
+
+function makeStopIcon(selected = false) {
+  return L.divIcon({
+    className: "",
+    html: `<div class="stop-marker ${selected ? "selected" : ""}"></div>`,
+    iconSize: [14, 14],
+    iconAnchor: [7, 7],
+  });
+}
+
+function makeUserIcon() {
+  return L.divIcon({
+    className: "",
+    html: `<div class="user-marker"><div class="ring"></div><div class="core"></div></div>`,
+    iconSize: [18, 18],
+    iconAnchor: [9, 9],
+  });
+}
+
+let userMarker = null;
+let userAccuracyCircle = null;
+
+function setUserLocation(lat, lon, accuracy) {
+  if (userMarker) map.removeLayer(userMarker);
+  if (userAccuracyCircle) map.removeLayer(userAccuracyCircle);
+  userAccuracyCircle = L.circle([lat, lon], {
+    radius: accuracy || 30, color: "#2563eb", fillColor: "#2563eb",
+    fillOpacity: 0.08, weight: 1, opacity: 0.4,
+  }).addTo(map);
+  userMarker = L.marker([lat, lon], { icon: makeUserIcon(), zIndexOffset: 1000 })
+    .addTo(map)
+    .bindTooltip("You are here", { className: "stop-tooltip", direction: "top", offset: [0,-10] });
+}
+
+function watchUser() {
+  if (!navigator.geolocation) return;
+  navigator.geolocation.watchPosition(
+    p => setUserLocation(p.coords.latitude, p.coords.longitude, p.coords.accuracy),
+    err => console.warn("geo:", err.message),
+    { enableHighAccuracy: true, maximumAge: 10000 }
+  );
+}
+
+// -------- Favorites (localStorage) --------
+const FAV_KEY = "adlt_favs";
+function getFavs() {
+  try { return JSON.parse(localStorage.getItem(FAV_KEY) || "[]"); } catch { return []; }
+}
+function setFavs(list) { localStorage.setItem(FAV_KEY, JSON.stringify(list)); renderFavs(); }
+function isFav(id) { return getFavs().some(s => s.stop_id === id); }
+function toggleFav(stop) {
+  const favs = getFavs();
+  const i = favs.findIndex(s => s.stop_id === stop.stop_id);
+  if (i >= 0) favs.splice(i, 1);
+  else favs.push({ stop_id: stop.stop_id, stop_name: stop.stop_name,
+                   stop_lat: stop.stop_lat, stop_lon: stop.stop_lon });
+  setFavs(favs);
+}
+function renderFavs() {
+  const el = document.getElementById("favs");
+  const favs = getFavs();
+  if (!favs.length) { el.innerHTML = '<div class="muted">No favorites yet.</div>'; return; }
+  el.innerHTML = favs.map(s => `
+    <div class="fav-item" data-id="${s.stop_id}">
+      <span class="fav-name">${s.stop_name}</span>
+      <span class="rm" data-rm="${s.stop_id}">×</span>
+    </div>`).join("");
+  el.querySelectorAll(".fav-item").forEach(div => {
+    div.addEventListener("click", e => {
+      if (e.target.dataset.rm) {
+        toggleFav({stop_id: e.target.dataset.rm});
+      } else {
+        const s = favs.find(f => f.stop_id === div.dataset.id);
+        map.setView([s.stop_lat, s.stop_lon], 17);
+        showArrivals(s);
+      }
+    });
+  });
+}
+
+// -------- Map stops --------
+async function loadStopsInView() {
+  const c = map.getCenter();
+  const r = await fetch(`${API}/stops?lat=${c.lat}&lon=${c.lng}&radius_km=1.5`);
+  const stops = await r.json();
+  stopLayer.clearLayers();
+  stops.forEach(s => {
+    const m = L.marker([s.stop_lat, s.stop_lon], { icon: makeStopIcon(), stopRef: s });
+    m.bindTooltip(s.stop_name, { className: "stop-tooltip", direction: "top", offset: [0,-8] });
+    m.on("click", () => {
+      showArrivals(s);
+      if (currentMarker) currentMarker.setIcon(makeStopIcon(false));
+      m.setIcon(makeStopIcon(true));
+      currentMarker = m;
+    });
+    stopLayer.addLayer(m);
+  });
+  document.getElementById("status").innerHTML =
+    `<span class="count">${stops.length}</span> stops visible · click any to see arrivals`;
+}
+
+// -------- Formatting --------
+function delayClass(sec) {
+  if (sec == null) return "";
+  if (sec <= 60) return "delay-on";
+  if (sec <= 300) return "delay-late";
+  return "delay-bad";
+}
+function fmtDelay(sec) {
+  if (sec == null) return "no realtime data";
+  const m = Math.round(sec / 60);
+  if (m === 0) return "on time";
+  return m > 0 ? `${m} min late` : `${Math.abs(m)} min early`;
+}
+function fmtTime(ts) {
+  if (!ts) return "";
+  return new Date(ts * 1000).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"});
+}
+function fmtHMS(hms) { return hms ? hms.slice(0,5) : ""; }
+
+function fmtMins(sec) {
+  const m = sec / 60;
+  const abs = Math.abs(m).toFixed(m % 1 === 0 ? 0 : 1);
+  return m >= 0 ? `${abs} late` : `${abs} early`;
+}
+
+function classifyPattern(t) {
+  if (!t) return null;
+  const lo = Math.round(t.p25_sec / 60);
+  const hi = Math.round(t.p75_sec / 60);
+  const mid = Math.round(t.p50_sec / 60);
+  let kind;
+  if (lo === 0 && hi === 0)      kind = "on_time";
+  else if (lo >= 0 && hi >= 0)   kind = "late";   // includes zero-to-late
+  else if (lo <= 0 && hi <= 0)   kind = "early";  // includes early-to-zero
+  else                            kind = "mixed";  // straddles zero
+  return { lo, hi, mid, kind };
+}
+
+function patternText(t) {
+  if (!t) return "Not enough history yet for this route+hour - keep collecting";
+  const c = classifyPattern(t);
+  const day = t.day_type === "weekend" ? "weekends" : "weekdays";
+  const scopeNote = {
+    "exact": `at this hour on ${day}`,
+    "±1h":   `around this hour on ${day}`,
+    "all-hours-day-type": `on ${day} (any hour)`,
+    "all":   `overall (any hour, any day)`,
+  }[t.scope] || `on ${day}`;
+
+  let core;
+  if (c.kind === "on_time") {
+    core = `Usually on time ${scopeNote}`;
+  } else if (c.kind === "late") {
+    if (c.lo === c.hi) {
+      core = `Usually about ${c.hi} min late ${scopeNote}`;
+    } else if (c.lo === 0) {
+      core = `Sometimes on time, up to ${c.hi} min late ${scopeNote}`;
+    } else {
+      core = `Usually ${c.lo} to ${c.hi} min late ${scopeNote}`;
+    }
+  } else if (c.kind === "early") {
+    const aLo = Math.abs(c.lo), aHi = Math.abs(c.hi);
+    if (aLo === aHi) {
+      core = `Usually about ${aHi} min early ${scopeNote} - leave earlier`;
+    } else if (c.hi === 0) {
+      core = `Sometimes on time, up to ${aLo} min early ${scopeNote} - leave earlier`;
+    } else {
+      core = `Usually ${aHi} to ${aLo} min early ${scopeNote} - leave earlier`;
+    }
+  } else {
+    core = `Up to ${Math.abs(c.lo)} min early, up to ${c.hi} min late ${scopeNote}`;
+  }
+  return `${core} (${t.samples} samples)`;
+}
+
+function leaveByText(predicted_arrival_ts, typical, hasLiveDelay) {
+  const safetyMin = 2;
+  let extraBuffer = 0;
+  let reason;
+
+  if (hasLiveDelay) {
+    reason = `${safetyMin} min safety buffer (live GPS is trusted)`;
+  } else if (typical) {
+    const c = classifyPattern(typical);
+    if (c.kind === "early" || c.kind === "mixed") {
+      extraBuffer = Math.max(0, -c.lo);
+      reason = extraBuffer > 0
+        ? `${extraBuffer} min early buffer (past pattern) + ${safetyMin} min safety`
+        : `${safetyMin} min safety buffer`;
+    } else {
+      reason = `${safetyMin} min safety buffer (pattern says on time or late)`;
+    }
+  } else {
+    extraBuffer = 1;
+    reason = `${safetyMin + extraBuffer} min total buffer (no data yet)`;
+  }
+
+  const leaveAt = new Date(predicted_arrival_ts * 1000 - (extraBuffer + safetyMin) * 60000);
+  const hh = String(leaveAt.getHours()).padStart(2,"0");
+  const mm = String(leaveAt.getMinutes()).padStart(2,"0");
+  return `Be at stop by ${hh}:${mm} (${reason})`;
+}
+
+function renderArrival(a) {
+  const pattern = patternText(a.typical);
+  const hasLive = a.has_gps === 1;
+  const safetyMin = 2;
+
+  // Status row: live dot + delay, or scheduled icon
+  let statusRow;
+  if (hasLive) {
+    statusRow = `
+      <div class="a-status">
+        <span class="live-dot"></span>
+        <span class="${delayClass(a.delay_seconds)}">${fmtDelay(a.delay_seconds)}</span>
+        <span class="muted" style="font-size:11px;">· Live GPS</span>
+      </div>`;
+  } else {
+    statusRow = `
+      <div class="a-status">
+        <span class="sched-icon">⏱</span>
+        <span class="muted">Scheduled · no live GPS</span>
+      </div>`;
+  }
+
+  // Leave-by hero block
+  let leaveBlock = "";
+  if (a.predicted_arrival) {
+    let extraBuffer = 0;
+    let reason;
+    if (hasLive) {
+      reason = "Live GPS trusted, 2 min safety";
+    } else if (a.typical) {
+      const c = classifyPattern(a.typical);
+      if (c.kind === "early" || c.kind === "mixed") {
+        extraBuffer = Math.max(0, -c.lo);
+        reason = extraBuffer > 0
+          ? `${extraBuffer} min early buffer + ${safetyMin} min safety`
+          : `${safetyMin} min safety buffer`;
+      } else {
+        reason = "Pattern says on time or late, 2 min safety";
+      }
+    } else {
+      extraBuffer = 1;
+      reason = "No data yet, 3 min total buffer";
+    }
+    const leaveAt = new Date(a.predicted_arrival * 1000 - (extraBuffer + safetyMin) * 60000);
+    const hh = String(leaveAt.getHours()).padStart(2,"0");
+    const mm = String(leaveAt.getMinutes()).padStart(2,"0");
+    leaveBlock = `
+      <div class="a-leave">
+        <div class="label">Be at stop by</div>
+        <div class="time">${hh}:${mm}</div>
+        <div class="reason">${reason}</div>
+      </div>`;
+  }
+
+  return `
+    <div class="arrival">
+      <div class="a-top">
+        <span class="a-route">${a.route_short_name ?? "?"}</span>
+        <span class="a-headsign">${a.trip_headsign ?? ""}</span>
+        <span class="a-time">${fmtTime(a.predicted_arrival)}</span>
+      </div>
+      ${statusRow}
+      ${pattern ? `<div class="a-pattern">${pattern}</div>` : ""}
+      ${leaveBlock}
+    </div>`;
+}
+
+// -------- Stop panel: arrivals + reliability + planner --------
+async function showArrivals(stop) {
+  currentStop = stop;
+  const panel = document.getElementById("stop-section");
+  const starred = isFav(stop.stop_id);
+
+  panel.innerHTML = `
+    <h3>Stop details</h3>
+    <div class="stop-header">
+      <div class="stop-name">
+        <span>${stop.stop_name}</span>
+        <span class="star ${starred ? "on" : ""}" id="star-btn">★</span>
+      </div>
+      <div class="stop-meta">Stop ID ${stop.stop_id}</div>
+    </div>
+
+    <div class="section">
+      <h3>Next arrivals</h3>
+      <div id="arrivals" class="muted">loading...</div>
+    </div>
+
+    <div class="section">
+      <h3>Avg delay by hour (all buses combined)</h3>
+      <canvas id="reliabilityChart" height="140"></canvas>
+      <div class="muted" id="reliability-note"></div>
+    </div>
+
+    <div class="section">
+      <h3>Per-route reliability</h3>
+      <div id="route-reliability" class="muted">loading...</div>
+      <div class="legend">— means the bus doesn't run at that time, or not enough data yet.</div>
+    </div>
+
+    <div class="section">
+      <h3>Plan a trip from here</h3>
+      <div class="planner-row">
+        <input id="plan-to" placeholder="Destination stop name..." />
+      </div>
+      <div class="planner-row">
+        <input id="plan-time" type="time" />
+        <button id="plan-btn">Find</button>
+      </div>
+      <div id="plan-results" class="muted">Type a destination + arrival time.</div>
+    </div>
+  `;
+
+  document.getElementById("star-btn").onclick = () => {
+    toggleFav(stop);
+    document.getElementById("star-btn").classList.toggle("on");
+  };
+  document.getElementById("plan-btn").onclick = runPlanner;
+
+  // Arrivals
+  fetch(`${API}/stop/${stop.stop_id}/next?limit=8`).then(r => r.json()).then(data => {
+    const box = document.getElementById("arrivals");
+    if (!data.arrivals.length) {
+      box.innerHTML = '<div class="muted">No realtime arrivals yet. Collector warming up.</div>';
+      return;
+    }
+    box.innerHTML = data.arrivals.map(a => renderArrival(a)).join("");
+  });
+
+  // Reliability chart
+  fetch(`${API}/stop/${stop.stop_id}/reliability`).then(r => r.json()).then(data => {
+    const ctx = document.getElementById("reliabilityChart");
+    if (!ctx) return;
+    const hours = Array.from({length: 24}, (_, i) => i);
+    const map = Object.fromEntries(data.by_hour.map(d => [d.hour, d.avg_delay/60]));
+    const totalSamples = data.by_hour.reduce((s, d) => s + d.samples, 0);
+    if (reliabilityChart) reliabilityChart.destroy();
+    reliabilityChart = new Chart(ctx, {
+      type: "bar",
+      data: {
+        labels: hours.map(h => h + "h"),
+        datasets: [{
+          label: "delay (minutes)",
+          data: hours.map(h => map[h] ?? 0),
+          backgroundColor: hours.map(h => {
+            const v = map[h] ?? 0;
+            if (v < -0.5) return "#3b82f6";   // early
+            if (v <= 1)  return "#22c55e";   // on time
+            if (v <= 5)  return "#f59e0b";   // late
+            return "#ef4444";                 // very late
+          }),
+        }]
+      },
+      options: {
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: { label: c => `${c.raw.toFixed(1)} min` }
+          }
+        },
+        scales: {
+          x: { title: { display: true, text: "hour of day", color: "#94a3b8" },
+               ticks: { color: "#94a3b8", maxRotation:0, autoSkip:true } },
+          y: { title: { display: true, text: "minutes (− early / + late)", color: "#94a3b8" },
+               ticks: { color: "#94a3b8",
+                        callback: v => v + " min" } }
+        }
+      }
+    });
+    document.getElementById("reliability-note").textContent =
+      `Based on ${totalSamples.toLocaleString()} samples across all buses at this stop.`;
+
+    // Per-route breakdown
+    const rrEl = document.getElementById("route-reliability");
+    if (!data.by_route?.length) {
+      rrEl.innerHTML = '<div class="muted">Not enough data per route yet.</div>';
+    } else {
+      rrEl.innerHTML = data.by_route.map(r => {
+        const m = r.avg_delay / 60;
+        let label, cls;
+        if (m <= -5)      { label = `Often arrives early (about ${Math.abs(m).toFixed(0)} min)`; cls = "delay-bad"; }
+        else if (m <= -1) { label = `Often a bit early (~${Math.abs(m).toFixed(0)} min)`;        cls = "delay-bad"; }
+        else if (m <= 1)  { label = "Usually arrives on time";                                     cls = "delay-on"; }
+        else if (m <= 3)  { label = `Often a bit late (~${m.toFixed(0)} min)`;                    cls = "delay-late"; }
+        else if (m <= 7)  { label = `Often late (about ${m.toFixed(0)} min)`;                     cls = "delay-late"; }
+        else              { label = `Usually very late (about ${m.toFixed(0)} min)`;              cls = "delay-bad"; }
+
+        // Render time-of-day buckets
+        const BUCKET_DEFS = [
+          ["morning", "Morning 6-9"],
+          ["midday",  "Midday 9-3"],
+          ["evening", "Evening 3-7"],
+          ["night",   "Night 7+"],
+        ];
+        const bucketEntries = BUCKET_DEFS
+          .map(([k, lab]) => ({ k, lab, v: r.buckets?.[k] }))
+          .filter(b => b.v);
+
+        let worstKey = null, bestKey = null;
+        if (bucketEntries.length >= 2) {
+          const sorted = [...bucketEntries].sort((a,b) => b.v.avg_delay - a.v.avg_delay);
+          worstKey = sorted[0].k;
+          bestKey  = sorted[sorted.length - 1].k;
+          if (worstKey === bestKey) worstKey = bestKey = null;
+        }
+
+        const bucketsHtml = bucketEntries.length
+          ? `<div class="buckets">` + BUCKET_DEFS.map(([k, lab]) => {
+              const b = r.buckets?.[k];
+              if (!b) return `<div class="bucket"><span class="lab">${lab}</span><span class="muted">—</span></div>`;
+              const mm = b.avg_delay / 60;
+              const txt = mm <= -1 ? `${Math.abs(mm).toFixed(0)}m early`
+                        : mm <= 1  ? `on time`
+                        : `${mm.toFixed(0)}m late`;
+              const tag = k === worstKey ? "bucket worst" : k === bestKey ? "bucket best" : "bucket";
+              const colorCls = mm <= -1 ? "delay-bad" : mm <= 1 ? "delay-on" : mm <= 5 ? "delay-late" : "delay-bad";
+              return `<div class="${tag}"><span class="lab">${lab}</span><span class="${colorCls}">${txt}</span></div>`;
+            }).join("") + `</div>`
+          : "";
+
+        let smartTip = "";
+        if (worstKey) {
+          const w = r.buckets[worstKey];
+          const wMin = w.avg_delay / 60;
+          const wLab = BUCKET_DEFS.find(b => b[0] === worstKey)[1];
+          if (wMin > 3) smartTip = `Worst during <b>${wLab}</b> (${wMin.toFixed(0)} min late) - leave earlier then`;
+          else if (wMin < -1) smartTip = `Often early during <b>${wLab}</b> - be at stop ahead of schedule`;
+        }
+
+        return `
+          <div class="route-card">
+            <div class="rc-top">
+              <span class="a-route">${r.route_short_name ?? r.route_id}</span>
+              <span class="rc-label ${cls}">${label}</span>
+            </div>
+            ${smartTip ? `<div class="rc-tip">${smartTip}</div>` : ""}
+            <div class="rc-stats">Based on ${r.samples.toLocaleString()} past trips</div>
+            ${bucketsHtml}
+          </div>`;
+      }).join("");
+    }
+  });
+}
+
+// -------- Trip planner --------
+async function runPlanner() {
+  if (!currentStop) return;
+  const dest = document.getElementById("plan-to").value.trim();
+  const time = document.getElementById("plan-time").value;
+  if (!dest) return;
+
+  const out = document.getElementById("plan-results");
+  out.innerHTML = '<div class="muted">searching...</div>';
+
+  const r = await fetch(`${API}/stops?q=${encodeURIComponent(dest)}`);
+  const matches = await r.json();
+  if (!matches.length) { out.innerHTML = '<div class="muted">No stop matched.</div>'; return; }
+  const destStop = matches[0];
+
+  const url = `${API}/trip/plan?from=${currentStop.stop_id}&to=${destStop.stop_id}` +
+              (time ? `&arrive_by=${time}` : "");
+  const data = await (await fetch(url)).json();
+
+  if (!data.options.length) {
+    out.innerHTML = `<div class="muted">No direct trips from ${currentStop.stop_name}
+                     to ${destStop.stop_name} before ${time || "tomorrow"}.</div>`;
+    return;
+  }
+
+  out.innerHTML = `<div class="muted">→ ${destStop.stop_name}</div>` +
+    data.options.map(o => {
+      const delayMin = o.typical_delay_sec != null ? Math.round(o.typical_delay_sec/60) : null;
+      const depHMS = fmtHMS(o.depart_at);
+      // suggested "leave by" = scheduled departure minus delay (if positive)
+      let leaveBy = depHMS;
+      if (delayMin != null && delayMin < 0) {
+        const [h,m] = depHMS.split(":").map(Number);
+        const mins = h*60 + m + delayMin;
+        leaveBy = `${String(Math.floor(mins/60)).padStart(2,"0")}:${String(mins%60).padStart(2,"0")}`;
+      }
+      const delayTxt = delayMin == null
+        ? '<span class="muted">no delay data yet for this route/hour</span>'
+        : (delayMin > 0
+          ? `<span class="delay-late">usually ${delayMin} min late</span>`
+          : delayMin < 0
+            ? `<span class="delay-bad">sometimes ${delayMin} min early — leave earlier</span>`
+            : '<span class="delay-on">usually on time</span>');
+      return `
+        <div class="plan-opt">
+          <div><span class="route" style="background:#38bdf8;color:#001;padding:1px 6px;border-radius:4px;">${o.route_short_name ?? o.route_id}</span>
+               ${o.trip_headsign ?? ""}</div>
+          <div>Depart <b>${depHMS}</b> → arrive <b>${fmtHMS(o.arrive_at)}</b></div>
+          <div>${delayTxt}</div>
+          <div class="leave-by">Leave by ${leaveBy}</div>
+        </div>`;
+    }).join("");
+}
+
+// -------- Wire up --------
+map.on("moveend", loadStopsInView);
+loadStopsInView();
+renderFavs();
+
+document.getElementById("search").addEventListener("change", async e => {
+  const q = e.target.value.trim();
+  if (!q) return;
+  const stops = await (await fetch(`${API}/stops?q=${encodeURIComponent(q)}`)).json();
+  if (stops[0]) { map.setView([stops[0].stop_lat, stops[0].stop_lon], 17); showArrivals(stops[0]); }
+});
+
+document.getElementById("locate").addEventListener("click", () => {
+  navigator.geolocation?.getCurrentPosition(p => {
+    setUserLocation(p.coords.latitude, p.coords.longitude, p.coords.accuracy);
+    map.setView([p.coords.latitude, p.coords.longitude], 17);
+  });
+});
+
+// Auto-track user location as they move
+watchUser();
+</script>
+</body>
+</html>
