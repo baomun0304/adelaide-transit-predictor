@@ -593,12 +593,6 @@ async function showArrivals(stop) {
     </div>
 
     <div class="section">
-      <h3>Per-route reliability</h3>
-      <div id="route-reliability" class="muted">loading...</div>
-      <div class="legend">— means the bus doesn't run at that time, or not enough data yet.</div>
-    </div>
-
-    <div class="section">
       <h3>Plan a trip from here</h3>
       <div class="planner-row">
         <input id="plan-to" placeholder="Destination stop name..." />
@@ -617,14 +611,17 @@ async function showArrivals(stop) {
   };
   document.getElementById("plan-btn").onclick = runPlanner;
 
-  // Arrivals
-  fetch(`${API}/stop/${stop.stop_id}/next?limit=8`).then(r => r.json()).then(data => {
+  // Arrivals — all remaining buses today until last service
+  fetch(`${API}/stop/${stop.stop_id}/next?limit=50`).then(r => r.json()).then(data => {
     const box = document.getElementById("arrivals");
     if (!data.arrivals.length) {
-      box.innerHTML = '<div class="muted">No realtime arrivals yet. Collector warming up.</div>';
+      box.innerHTML = '<div class="muted">No more buses scheduled here today.</div>';
       return;
     }
-    box.innerHTML = data.arrivals.map(a => renderArrival(a)).join("");
+    const last = data.last_service
+      ? `<div class="muted" style="margin-bottom:8px;">${data.arrivals.length} buses left today · last service ${fmtTime(data.last_service)}</div>`
+      : "";
+    box.innerHTML = last + data.arrivals.map(a => renderArrival(a)).join("");
   });
 
   // Reliability chart
@@ -669,76 +666,6 @@ async function showArrivals(stop) {
     });
     document.getElementById("reliability-note").textContent =
       `Based on ${totalSamples.toLocaleString()} samples across all buses at this stop.`;
-
-    // Per-route breakdown
-    const rrEl = document.getElementById("route-reliability");
-    if (!data.by_route?.length) {
-      rrEl.innerHTML = '<div class="muted">Not enough data per route yet.</div>';
-    } else {
-      rrEl.innerHTML = data.by_route.map(r => {
-        const m = r.avg_delay / 60;
-        let label, cls;
-        if (m <= -5)      { label = `Often arrives early (about ${Math.abs(m).toFixed(0)} min)`; cls = "delay-bad"; }
-        else if (m <= -1) { label = `Often a bit early (~${Math.abs(m).toFixed(0)} min)`;        cls = "delay-bad"; }
-        else if (m <= 1)  { label = "Usually arrives on time";                                     cls = "delay-on"; }
-        else if (m <= 3)  { label = `Often a bit late (~${m.toFixed(0)} min)`;                    cls = "delay-late"; }
-        else if (m <= 7)  { label = `Often late (about ${m.toFixed(0)} min)`;                     cls = "delay-late"; }
-        else              { label = `Usually very late (about ${m.toFixed(0)} min)`;              cls = "delay-bad"; }
-
-        // Render time-of-day buckets
-        const BUCKET_DEFS = [
-          ["morning", "Morning 6-9"],
-          ["midday",  "Midday 9-3"],
-          ["evening", "Evening 3-7"],
-          ["night",   "Night 7+"],
-        ];
-        const bucketEntries = BUCKET_DEFS
-          .map(([k, lab]) => ({ k, lab, v: r.buckets?.[k] }))
-          .filter(b => b.v);
-
-        let worstKey = null, bestKey = null;
-        if (bucketEntries.length >= 2) {
-          const sorted = [...bucketEntries].sort((a,b) => b.v.avg_delay - a.v.avg_delay);
-          worstKey = sorted[0].k;
-          bestKey  = sorted[sorted.length - 1].k;
-          if (worstKey === bestKey) worstKey = bestKey = null;
-        }
-
-        const bucketsHtml = bucketEntries.length
-          ? `<div class="buckets">` + BUCKET_DEFS.map(([k, lab]) => {
-              const b = r.buckets?.[k];
-              if (!b) return `<div class="bucket"><span class="lab">${lab}</span><span class="muted">—</span></div>`;
-              const mm = b.avg_delay / 60;
-              const txt = mm <= -1 ? `${Math.abs(mm).toFixed(0)}m early`
-                        : mm <= 1  ? `on time`
-                        : `${mm.toFixed(0)}m late`;
-              const tag = k === worstKey ? "bucket worst" : k === bestKey ? "bucket best" : "bucket";
-              const colorCls = mm <= -1 ? "delay-bad" : mm <= 1 ? "delay-on" : mm <= 5 ? "delay-late" : "delay-bad";
-              return `<div class="${tag}"><span class="lab">${lab}</span><span class="${colorCls}">${txt}</span></div>`;
-            }).join("") + `</div>`
-          : "";
-
-        let smartTip = "";
-        if (worstKey) {
-          const w = r.buckets[worstKey];
-          const wMin = w.avg_delay / 60;
-          const wLab = BUCKET_DEFS.find(b => b[0] === worstKey)[1];
-          if (wMin > 3) smartTip = `Worst during <b>${wLab}</b> (${wMin.toFixed(0)} min late) - leave earlier then`;
-          else if (wMin < -1) smartTip = `Often early during <b>${wLab}</b> - be at stop ahead of schedule`;
-        }
-
-        return `
-          <div class="route-card">
-            <div class="rc-top">
-              <span class="a-route">${r.route_short_name ?? r.route_id}</span>
-              <span class="rc-label ${cls}">${label}</span>
-            </div>
-            ${smartTip ? `<div class="rc-tip">${smartTip}</div>` : ""}
-            <div class="rc-stats">Based on ${r.samples.toLocaleString()} past trips</div>
-            ${bucketsHtml}
-          </div>`;
-      }).join("");
-    }
   });
 }
 

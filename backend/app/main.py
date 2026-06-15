@@ -107,9 +107,21 @@ def _typical_delay(conn, route_id, stop_id, hour, is_weekend):
 
 
 @app.get("/stop/{stop_id}/next")
-def next_arrivals(stop_id: str, limit: int = 5):
-    """Latest realtime predictions at this stop + typical-delay annotations."""
+def next_arrivals(stop_id: str, limit: int = 50):
+    """
+    All remaining scheduled arrivals at this stop today (until last service),
+    merged with live realtime data where the bus is currently tracked, plus
+    typical-delay annotations from history.
+    """
     now = int(time.time())
+    now_dt = datetime.now()
+    midnight_ts = int(now_dt.replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
+    current_hms = now_dt.strftime("%H:%M:%S")
+    is_weekend = now_dt.weekday() >= 5
+    today_dow = DOW_COLS[(now_dt.weekday() + 1) % 7]
+    today_cal = now_dt.strftime("%Y%m%d")       # calendar.txt format
+    today_sd = now_dt.strftime("%Y-%m-%d")      # realtime_updates.service_date format
+
     with get_conn() as conn:
         stop = conn.execute(
             "SELECT * FROM stops WHERE stop_id = ?", (stop_id,)
@@ -117,33 +129,67 @@ def next_arrivals(stop_id: str, limit: int = 5):
         if not stop:
             raise HTTPException(404, "stop not found")
 
-        rows = conn.execute("""
-            SELECT u.trip_id, u.route_id, u.predicted_arrival, u.delay_seconds, u.has_gps,
-                   r.route_short_name, r.route_long_name, t.trip_headsign
-            FROM realtime_updates u
-            LEFT JOIN routes r ON r.route_id = u.route_id
-            LEFT JOIN trips  t ON t.trip_id  = u.trip_id
-            WHERE u.stop_id = ?
-              AND u.predicted_arrival >= ?
-              AND u.id IN (
-                SELECT MAX(id) FROM realtime_updates
-                WHERE stop_id = ? GROUP BY trip_id
-              )
-            ORDER BY u.predicted_arrival ASC
+        has_calendar = conn.execute("SELECT COUNT(*) AS n FROM calendar").fetchone()["n"] > 0
+
+        # join realtime by service_date so we only pick up *today's* live row
+        params = [today_sd, stop_id]
+        cal_filter = ""
+        if has_calendar:
+            cal_filter = f"""
+                AND t.service_id IN (
+                    SELECT service_id FROM calendar
+                    WHERE {today_dow} = 1 AND start_date <= ? AND end_date >= ?
+                )
+            """
+            params += [today_cal, today_cal]
+        params += [current_hms, limit]
+
+        rows = conn.execute(f"""
+            SELECT st.trip_id, st.arrival_time, st.stop_sequence,
+                   t.route_id, t.trip_headsign,
+                   r.route_short_name, r.route_long_name,
+                   u.predicted_arrival, u.delay_seconds, u.has_gps
+            FROM stop_times st
+            JOIN trips  t ON t.trip_id  = st.trip_id
+            JOIN routes r ON r.route_id = t.route_id
+            LEFT JOIN realtime_updates u
+                   ON u.trip_id = st.trip_id AND u.stop_id = st.stop_id
+                  AND u.service_date = ?
+            WHERE st.stop_id = ?
+              {cal_filter}
+              AND st.arrival_time >= ?
+            ORDER BY st.arrival_time
             LIMIT ?
-        """, (stop_id, now, stop_id, limit)).fetchall()
+        """, params).fetchall()
 
         arrivals = []
         for r in rows:
-            a = dict(r)
-            arr_dt = datetime.fromtimestamp(a["predicted_arrival"])
-            is_weekend = arr_dt.weekday() >= 5
-            a["typical"] = _typical_delay(
-                conn, a["route_id"], stop_id, arr_dt.hour, is_weekend
-            )
-            arrivals.append(a)
+            sched_epoch = midnight_ts + _parse_hms(r["arrival_time"])
+            predicted = r["predicted_arrival"] if r["predicted_arrival"] else sched_epoch
+            hour = ((sched_epoch - midnight_ts) // 3600) % 24
+            typical = _typical_delay(conn, r["route_id"], stop_id, hour, is_weekend)
+            arrivals.append({
+                "trip_id": r["trip_id"],
+                "route_id": r["route_id"],
+                "route_short_name": r["route_short_name"],
+                "route_long_name": r["route_long_name"],
+                "trip_headsign": r["trip_headsign"],
+                "scheduled_arrival": sched_epoch,
+                "predicted_arrival": predicted,
+                "delay_seconds": r["delay_seconds"],
+                "has_gps": r["has_gps"] or 0,
+                "typical": typical,
+            })
 
-    return {"stop": dict(stop), "arrivals": arrivals, "server_time": now}
+    last_service = max((a["scheduled_arrival"] for a in arrivals), default=None)
+    arrivals.sort(key=lambda a: a["predicted_arrival"])
+
+    return {
+        "stop": dict(stop),
+        "arrivals": arrivals,
+        "server_time": now,
+        "last_service": last_service,
+    }
 
 
 @app.get("/route/{route_id}/reliability")
