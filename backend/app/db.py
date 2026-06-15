@@ -46,6 +46,7 @@ CREATE INDEX IF NOT EXISTS idx_stop_times_trip ON stop_times(trip_id);
 CREATE TABLE IF NOT EXISTS realtime_updates (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     fetched_at INTEGER NOT NULL,
+    service_date TEXT NOT NULL,
     trip_id TEXT,
     route_id TEXT,
     stop_id TEXT,
@@ -53,9 +54,9 @@ CREATE TABLE IF NOT EXISTS realtime_updates (
     scheduled_arrival INTEGER,
     predicted_arrival INTEGER,
     delay_seconds INTEGER,
-    has_gps INTEGER DEFAULT 0
+    has_gps INTEGER DEFAULT 0,
+    UNIQUE(trip_id, stop_id, service_date)
 );
-CREATE INDEX IF NOT EXISTS idx_rt_trip ON realtime_updates(trip_id);
 CREATE INDEX IF NOT EXISTS idx_rt_stop ON realtime_updates(stop_id);
 CREATE INDEX IF NOT EXISTS idx_rt_fetched ON realtime_updates(fetched_at);
 CREATE INDEX IF NOT EXISTS idx_rt_route_stop ON realtime_updates(route_id, stop_id);

@@ -130,14 +130,29 @@ def store_updates(feed, live_trip_ids=None):
 
     if not raw:
         return 0
+
+    # One row per (trip, stop, service_date). Each poll UPDATES that row with the
+    # latest prediction instead of inserting a new snapshot. Caps table size.
+    service_date = today.strftime("%Y-%m-%d")
+    rows = [(r[0], service_date, r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8])
+            for r in raw]
+
     with get_conn() as conn:
         conn.executemany("""
             INSERT INTO realtime_updates
-            (fetched_at, trip_id, route_id, stop_id, stop_sequence,
+            (fetched_at, service_date, trip_id, route_id, stop_id, stop_sequence,
              scheduled_arrival, predicted_arrival, delay_seconds, has_gps)
-            VALUES (?,?,?,?,?,?,?,?,?)
-        """, raw)
-    return len(raw)
+            VALUES (?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(trip_id, stop_id, service_date) DO UPDATE SET
+              fetched_at=excluded.fetched_at,
+              route_id=excluded.route_id,
+              stop_sequence=excluded.stop_sequence,
+              scheduled_arrival=COALESCE(excluded.scheduled_arrival, scheduled_arrival),
+              predicted_arrival=excluded.predicted_arrival,
+              delay_seconds=COALESCE(excluded.delay_seconds, delay_seconds),
+              has_gps=MAX(has_gps, excluded.has_gps)
+        """, rows)
+    return len(rows)
 
 
 def poll_loop():
