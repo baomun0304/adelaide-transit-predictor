@@ -6,3 +6,5 @@ data/*.zip
 data/gtfs_static/
 .env
 .DS_Store
+
+tunnel*.log
