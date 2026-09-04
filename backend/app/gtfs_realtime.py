@@ -9,6 +9,11 @@ from .db import get_conn, init_db
 QUIET_START_HOUR = 1
 QUIET_END_HOUR = 5
 
+# Remembers the last (predicted, delay, has_gps) written per (trip, stop, date) so
+# each poll only writes rows that actually changed. Cuts disk writes massively on
+# small servers (most buses report the same prediction poll-to-poll).
+_last_written = {}
+
 
 def is_quiet_hours(now=None):
     h = (now or datetime.now()).hour
@@ -136,6 +141,21 @@ def store_updates(feed, live_trip_ids=None):
     service_date = today.strftime("%Y-%m-%d")
     rows = [(r[0], service_date, r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8])
             for r in raw]
+
+    # Only keep rows whose prediction/delay/GPS changed since the last poll.
+    # row = (fetched_at, service_date, trip_id, route_id, stop_id, stop_seq,
+    #        scheduled, predicted, delay, has_gps)
+    changed = []
+    for row in rows:
+        key = (row[2], row[4], row[1])   # trip_id, stop_id, service_date
+        sig = (row[7], row[8], row[9])   # predicted, delay, has_gps
+        if _last_written.get(key) != sig:
+            _last_written[key] = sig
+            changed.append(row)
+    rows = changed
+
+    if not rows:
+        return 0
 
     with get_conn() as conn:
         conn.executemany("""

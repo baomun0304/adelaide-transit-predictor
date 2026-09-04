@@ -76,6 +76,9 @@ def get_conn():
     conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA busy_timeout=30000")
+    conn.execute("PRAGMA mmap_size=134217728")  # 128MB memory-map: fewer read syscalls
+    conn.execute("PRAGMA cache_size=-20000")     # ~20MB page cache per connection
+    conn.execute("PRAGMA temp_store=MEMORY")
     try:
         yield conn
         conn.commit()
