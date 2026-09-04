@@ -267,12 +267,14 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script>
 // API URL: defaults to current tunnel, can be overridden at runtime via:
-//   localStorage.setItem("apiUrl", "https://your-new-tunnel.trycloudflare.com")
-// or via URL param: ?api=https://your-new-tunnel.trycloudflare.com
-const DEFAULT_API = "https://mon-completed-some-tons.trycloudflare.com";
+//   localStorage.setItem("apiUrl", "https://150-230-11-143.sslip.io")
+// or via URL param: ?api=https://150-230-11-143.sslip.io
+const DEFAULT_API = "https://150-230-11-143.sslip.io";
+// Permanent backend is the default. ?api=... still allows a one-off override for testing.
+// Clear any stale saved tunnel URL from the old setup so it can't override the default.
+localStorage.removeItem("apiUrl");
 const urlParam = new URLSearchParams(location.search).get("api");
-if (urlParam) localStorage.setItem("apiUrl", urlParam);
-const API = localStorage.getItem("apiUrl") || DEFAULT_API;
+const API = urlParam || DEFAULT_API;
 console.log("API:", API);
 const map = L.map("map", { zoomControl: true, attributionControl: true })
   .setView([-34.9285, 138.6007], 14);
