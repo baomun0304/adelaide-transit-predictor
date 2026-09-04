@@ -111,7 +111,7 @@ def store_updates(feed, live_trip_ids=None):
                 rows = conn.execute(f"""
                     SELECT trip_id, stop_id, arrival_time
                     FROM stop_times
-                    WHERE (trip_id, stop_id) IN ({placeholders})
+                    WHERE (trip_id, stop_id) IN (VALUES {placeholders})
                 """, flat).fetchall()
                 for r in rows:
                     sched_lookup[(r["trip_id"], r["stop_id"])] = r["arrival_time"]

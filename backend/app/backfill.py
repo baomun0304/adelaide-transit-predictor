@@ -62,7 +62,7 @@ def run(batch_size: int = 50000):
                 flat = [v for p in chunk for v in p]
                 for s in conn.execute(f"""
                     SELECT trip_id, stop_id, arrival_time FROM stop_times
-                    WHERE (trip_id, stop_id) IN ({placeholders})
+                    WHERE (trip_id, stop_id) IN (VALUES {placeholders})
                 """, flat).fetchall():
                     sched[(s["trip_id"], s["stop_id"])] = s["arrival_time"]
 
