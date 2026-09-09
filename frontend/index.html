@@ -87,6 +87,8 @@
                 white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .a-time { font-variant-numeric: tabular-nums; font-weight:600; font-size:16px;
             letter-spacing:-0.01em; }
+  .a-count { margin-left:auto; font-variant-numeric: tabular-nums; font-weight:700;
+             font-size:15px; color:var(--accent); min-width:52px; text-align:right; }
 
   .a-status { display:flex; align-items:center; gap:6px; font-size:13px; margin-bottom:6px; }
   .live-dot { width:7px; height:7px; border-radius:50%; background:var(--good);
@@ -106,6 +108,11 @@
   .a-leave .time { font-size:18px; font-weight:700; letter-spacing:-0.01em;
                    font-variant-numeric: tabular-nums; color:var(--text); margin-top:2px; }
   .a-leave .reason { font-size:11px; color:var(--muted); margin-top:2px; }
+  .remind-btn { margin-top:8px; width:100%; padding:8px 10px; font-size:13px; font-weight:600;
+                cursor:pointer; border-radius: var(--radius-sm); border:1px solid var(--accent);
+                background:transparent; color:var(--accent); transition: background .15s, color .15s; }
+  .remind-btn:hover { background: rgba(56,189,248,0.12); }
+  .remind-btn.on { background: var(--accent); color:#03121c; border-color: var(--accent); }
 
   /* Status colors */
   .delay-on   { color:var(--good); font-weight:500; }
@@ -296,6 +303,87 @@ map.addLayer(stopLayer);
 let currentStop = null;
 let currentMarker = null;
 let reliabilityChart = null;
+
+// ---- Live countdown + departure reminders ----
+let reminders = [];
+try { reminders = JSON.parse(localStorage.getItem("reminders") || "[]"); } catch {}
+// Drop anything already well in the past (stale from a previous visit).
+reminders = reminders.filter(r => r.arriveTs > Math.floor(Date.now()/1000) - 300);
+function saveReminders() {
+  try { localStorage.setItem("reminders", JSON.stringify(reminders)); } catch {}
+}
+
+// Human countdown from a predicted-arrival epoch (seconds).
+function countdownText(predTs) {
+  const secs = predTs - Math.floor(Date.now()/1000);
+  if (secs <= 0) return "due";
+  if (secs < 60) return `${secs}s`;
+  const m = Math.floor(secs/60);
+  if (m < 60) return `${m} min`;
+  return `${Math.floor(m/60)}h ${m%60}m`;
+}
+
+async function ensureNotifyPermission() {
+  if (!("Notification" in window)) return false;
+  if (Notification.permission === "granted") return true;
+  if (Notification.permission === "denied") return false;
+  return (await Notification.requestPermission()) === "granted";
+}
+
+// Toggle a leave reminder for one arrival (button carries the data).
+async function toggleReminder(btn) {
+  const key = btn.dataset.key;
+  const i = reminders.findIndex(r => r.key === key);
+  if (i >= 0) {
+    reminders.splice(i, 1); saveReminders();
+    btn.classList.remove("on"); btn.textContent = "🔔 Remind me to leave";
+    return;
+  }
+  const ok = await ensureNotifyPermission();
+  reminders.push({
+    key, leaveTs: Number(btn.dataset.leave), arriveTs: Number(btn.dataset.pred),
+    route: btn.dataset.route || "", headsign: btn.dataset.headsign || "",
+    stop: currentStop ? currentStop.stop_name : "", notify: ok, fired: false,
+  });
+  saveReminders();
+  btn.classList.add("on");
+  btn.textContent = ok ? "🔔 Reminder set" : "🔔 Set (allow notifications for alerts)";
+}
+
+function markReminderButtons() {
+  document.querySelectorAll(".remind-btn").forEach(btn => {
+    const on = reminders.some(r => r.key === btn.dataset.key);
+    btn.classList.toggle("on", on);
+    if (on) btn.textContent = "🔔 Reminder set";
+  });
+}
+
+function fireReminder(r) {
+  const title = `Time to leave — ${r.route}`;
+  const body = `${r.route}${r.headsign ? " to " + r.headsign : ""} arrives ~${fmtTime(r.arriveTs)}${r.stop ? " at " + r.stop : ""}. Leave now.`;
+  if (r.notify && "Notification" in window && Notification.permission === "granted") {
+    try { new Notification(title, { body }); return; } catch {}
+  }
+  alert(title + "\n" + body);   // fallback when notifications are blocked
+}
+
+// One global 1-second ticker: refresh countdowns + fire due reminders.
+setInterval(() => {
+  const now = Math.floor(Date.now()/1000);
+  document.querySelectorAll(".a-count").forEach(el => {
+    el.textContent = countdownText(Number(el.dataset.pred));
+  });
+  let changed = false;
+  reminders.forEach(r => {
+    if (r.fired || now < r.leaveTs) return;
+    if (now <= r.leaveTs + 900) fireReminder(r);   // only alert within 15 min of leave time
+    r.fired = true; changed = true;
+  });
+  if (changed) {
+    reminders = reminders.filter(r => !r.fired);
+    saveReminders(); markReminderButtons();
+  }
+}, 1000);
 
 function makeStopIcon(selected = false) {
   return L.divIcon({
@@ -546,11 +634,17 @@ function renderArrival(a) {
     const leaveAt = new Date(a.predicted_arrival * 1000 - (extraBuffer + safetyMin) * 60000);
     const hh = String(leaveAt.getHours()).padStart(2,"0");
     const mm = String(leaveAt.getMinutes()).padStart(2,"0");
+    const leaveTs = Math.round(a.predicted_arrival - (extraBuffer + safetyMin) * 60);
     leaveBlock = `
       <div class="a-leave">
         <div class="label">Be at stop by</div>
         <div class="time">${hh}:${mm}</div>
         <div class="reason">${reason}</div>
+        <button class="remind-btn"
+          data-key="${a.trip_id}_${currentStop ? currentStop.stop_id : ''}"
+          data-leave="${leaveTs}" data-pred="${a.predicted_arrival}"
+          data-route="${a.route_short_name ?? ''}"
+          data-headsign="${(a.trip_headsign ?? '').replace(/["<>]/g,'')}">🔔 Remind me to leave</button>
       </div>`;
   }
 
@@ -560,6 +654,7 @@ function renderArrival(a) {
         <span class="a-route">${a.route_short_name ?? "?"}</span>
         <span class="a-headsign">${a.trip_headsign ?? ""}</span>
         <span class="a-time">${fmtTime(a.predicted_arrival)}</span>
+        <span class="a-count" data-pred="${a.predicted_arrival}">${countdownText(a.predicted_arrival)}</span>
       </div>
       ${statusRow}
       ${pattern ? `<div class="a-pattern">${pattern}</div>` : ""}
@@ -584,6 +679,8 @@ function loadArrivals(stopId) {
       ? `<div class="muted" style="margin-bottom:8px;">${data.arrivals.length} buses left today · last service ${fmtTime(data.last_service)}</div>`
       : "";
     box.innerHTML = last + data.arrivals.map(a => renderArrival(a)).join("");
+    box.querySelectorAll(".remind-btn").forEach(btn => btn.onclick = () => toggleReminder(btn));
+    markReminderButtons();
   }).catch(() => {});
 }
 
