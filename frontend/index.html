@@ -568,6 +568,25 @@ function renderArrival(a) {
 }
 
 // -------- Stop panel: arrivals + reliability + planner --------
+let arrivalsTimer = null;
+
+// Fetch + render the arrivals list. Called on open and every 30s so times stay live.
+function loadArrivals(stopId) {
+  fetch(`${API}/stop/${stopId}/next?limit=50`).then(r => r.json()).then(data => {
+    if (!currentStop || currentStop.stop_id !== stopId) return;  // user switched stops
+    const box = document.getElementById("arrivals");
+    if (!box) return;                                            // panel gone
+    if (!data.arrivals.length) {
+      box.innerHTML = '<div class="muted">No more buses scheduled here today.</div>';
+      return;
+    }
+    const last = data.last_service
+      ? `<div class="muted" style="margin-bottom:8px;">${data.arrivals.length} buses left today · last service ${fmtTime(data.last_service)}</div>`
+      : "";
+    box.innerHTML = last + data.arrivals.map(a => renderArrival(a)).join("");
+  }).catch(() => {});
+}
+
 async function showArrivals(stop) {
   currentStop = stop;
   const panel = document.getElementById("stop-section");
@@ -613,18 +632,10 @@ async function showArrivals(stop) {
   };
   document.getElementById("plan-btn").onclick = runPlanner;
 
-  // Arrivals — all remaining buses today until last service
-  fetch(`${API}/stop/${stop.stop_id}/next?limit=50`).then(r => r.json()).then(data => {
-    const box = document.getElementById("arrivals");
-    if (!data.arrivals.length) {
-      box.innerHTML = '<div class="muted">No more buses scheduled here today.</div>';
-      return;
-    }
-    const last = data.last_service
-      ? `<div class="muted" style="margin-bottom:8px;">${data.arrivals.length} buses left today · last service ${fmtTime(data.last_service)}</div>`
-      : "";
-    box.innerHTML = last + data.arrivals.map(a => renderArrival(a)).join("");
-  });
+  // Arrivals — load now, then auto-refresh every 30s so the list stays live
+  loadArrivals(stop.stop_id);
+  clearInterval(arrivalsTimer);
+  arrivalsTimer = setInterval(() => loadArrivals(stop.stop_id), 30000);
 
   // Reliability chart
   fetch(`${API}/stop/${stop.stop_id}/reliability`).then(r => r.json()).then(data => {

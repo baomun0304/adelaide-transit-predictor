@@ -1,5 +1,5 @@
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from .db import get_conn, init_db
@@ -117,6 +117,10 @@ def next_arrivals(stop_id: str, limit: int = 50):
     now_dt = datetime.now()
     midnight_ts = int(now_dt.replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
     current_hms = now_dt.strftime("%H:%M:%S")
+    # Look back 30 min so buses running late (scheduled time just passed, still coming)
+    # are still candidates. Clamp at midnight so the HMS string doesn't wrap backwards.
+    lookback_dt = now_dt - timedelta(minutes=30)
+    lookback_hms = "00:00:00" if lookback_dt.date() != now_dt.date() else lookback_dt.strftime("%H:%M:%S")
     is_weekend = now_dt.weekday() >= 5
     today_dow = DOW_COLS[(now_dt.weekday() + 1) % 7]
     today_cal = now_dt.strftime("%Y%m%d")       # calendar.txt format
@@ -142,7 +146,7 @@ def next_arrivals(stop_id: str, limit: int = 50):
                 )
             """
             params += [today_cal, today_cal]
-        params += [current_hms, limit]
+        params += [lookback_hms, limit + 12]
 
         rows = conn.execute(f"""
             SELECT st.trip_id, st.arrival_time, st.stop_sequence,
@@ -162,10 +166,23 @@ def next_arrivals(stop_id: str, limit: int = 50):
             LIMIT ?
         """, params).fetchall()
 
+        # A stored prediction more than 3h from this scheduled instance is not
+        # trustworthy (a stale row from an earlier run of the same trip_id, or a
+        # service-day boundary miscalculation). Reject it and fall back to schedule.
+        MAX_PRED_DRIFT = 3 * 3600
         arrivals = []
         for r in rows:
             sched_epoch = midnight_ts + _parse_hms(r["arrival_time"])
-            predicted = r["predicted_arrival"] if r["predicted_arrival"] else sched_epoch
+            pred_raw = r["predicted_arrival"]
+            delay = r["delay_seconds"]
+            if pred_raw and abs(pred_raw - sched_epoch) <= MAX_PRED_DRIFT:
+                predicted = pred_raw
+            else:
+                predicted = sched_epoch
+                delay = None
+            # Skip anything already gone (more than 2 min past its predicted time).
+            if predicted < now - 120:
+                continue
             hour = ((sched_epoch - midnight_ts) // 3600) % 24
             typical = _typical_delay(conn, r["route_id"], stop_id, hour, is_weekend)
             arrivals.append({
@@ -176,13 +193,14 @@ def next_arrivals(stop_id: str, limit: int = 50):
                 "trip_headsign": r["trip_headsign"],
                 "scheduled_arrival": sched_epoch,
                 "predicted_arrival": predicted,
-                "delay_seconds": r["delay_seconds"],
+                "delay_seconds": delay,
                 "has_gps": r["has_gps"] or 0,
                 "typical": typical,
             })
 
-    last_service = max((a["scheduled_arrival"] for a in arrivals), default=None)
     arrivals.sort(key=lambda a: a["predicted_arrival"])
+    last_service = max((a["scheduled_arrival"] for a in arrivals), default=None)
+    arrivals = arrivals[:limit]
 
     return {
         "stop": dict(stop),
