@@ -83,7 +83,6 @@
     align-items:center; justify-content:center;
   }
   .sugg-icon.stop { background:var(--info); }
-  .sugg-icon.addr { background:var(--accent); }
   .sugg-icon svg { width:14px; height:14px; fill:#fff; }
   .sugg-text { min-width:0; }
   .sugg-title { font-weight:600; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -205,27 +204,6 @@
   .fav-item .rm { color:var(--dim); font-size:18px; line-height:1; }
   .fav-item .rm:hover { color: var(--bad); }
 
-  /* Trip planner */
-  .planner-row { display:flex; gap:8px; margin-bottom:8px; }
-  .planner-row input { flex:1; padding:10px 12px; border-radius:var(--radius-sm); min-height:40px;
-                       border:1px solid var(--line); background:var(--card2); color:var(--text); }
-  .planner-row input:focus { border-color: var(--accent); outline:none; background:var(--panel); }
-  .planner-row button { padding:10px 16px; border-radius:var(--radius-sm); border:1px solid var(--accent);
-                        min-height:40px; background: var(--accent); color:var(--accent-ink);
-                        font-weight:600; cursor:pointer; transition:background 0.15s; }
-  .planner-row button:hover { background: var(--accent2); border-color: var(--accent2); }
-  .plan-opt { background:var(--card); padding:10px 12px; border-radius:var(--radius-sm);
-              border:1px solid var(--line); margin-bottom:6px; font-size:13px; }
-
-  /* Door-to-door journey view: search bar -> nearest stop -> ride -> destination */
-  .journey-step { display:flex; gap:12px; margin-bottom:18px; font-size:13px; }
-  .journey-num {
-    flex:none; width:24px; height:24px; border-radius:50%; background:var(--accent);
-    color:var(--accent-ink); font-weight:700; font-size:12px;
-    display:flex; align-items:center; justify-content:center;
-  }
-  .journey-options { flex:1; min-width:0; }
-
   .muted { color:var(--muted); font-size:13px; }
   canvas { background:var(--card); border-radius:var(--radius); padding:8px;
            border:1px solid var(--line); }
@@ -269,17 +247,6 @@
     background: var(--accent); border-color: #fff;
     box-shadow: 0 0 0 2px var(--accent), 0 0 18px color-mix(in srgb, var(--accent) 60%, transparent);
     transform: scale(1.3);
-  }
-
-  /* Searched-address pin + the walking-distance summary card */
-  .address-marker { width:28px; height:32px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.35)); }
-  .address-marker svg { width:28px; height:32px; fill: var(--accent); }
-  .walk-info {
-    display:flex; align-items:center; gap:8px;
-    background: color-mix(in srgb, var(--accent) 12%, transparent);
-    border:1px solid color-mix(in srgb, var(--accent) 35%, transparent);
-    border-radius: var(--radius-sm); padding:9px 12px; font-size:12px; font-weight:600;
-    color:var(--accent2); margin-bottom:14px;
   }
   .stop-tooltip {
     background: var(--panel) !important; color: var(--text) !important;
@@ -333,7 +300,7 @@
 <header>
   <h1><span class="dot"></span>Adelaide Transit</h1>
   <div class="search-wrap">
-    <input id="search" placeholder="Search stop or address..." autocomplete="off" />
+    <input id="search" placeholder="Search stop name..." autocomplete="off" />
     <div id="search-suggestions" hidden></div>
   </div>
   <button id="locate">My location</button>
@@ -405,149 +372,6 @@ map.addLayer(stopLayer);
 let currentStop = null;
 let currentMarker = null;
 let reliabilityChart = null;
-let addressMarker = null;
-let addressLine = null;
-let originLine = null;
-
-function haversineMeters(lat1, lon1, lat2, lon2) {
-  const R = 6371000, toRad = d => d * Math.PI / 180;
-  const dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
-  const a = Math.sin(dLat/2) ** 2 +
-            Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon/2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
-// Free, keyless geocoding for the "search an address" fallback (light personal
-// usage only, see Nominatim's usage policy before scaling this up). Returns
-// several candidates so the user can pick the right one from a dropdown,
-// same as Google Maps, instead of us silently guessing the top hit.
-async function geocodeAddress(q, limit = 5) {
-  try {
-    const r = await fetch(
-      `https://nominatim.openstreetmap.org/search?format=json&limit=${limit}&countrycodes=au&q=${encodeURIComponent(q + ", Adelaide, Australia")}`
-    );
-    const results = await r.json();
-    return results.map(x => ({ lat: parseFloat(x.lat), lon: parseFloat(x.lon), label: x.display_name }));
-  } catch (e) {
-    console.warn("geocode failed:", e);
-    return [];
-  }
-}
-
-async function nearestStop(lat, lon, radiusKm = 1.5) {
-  const nearby = await apiFetch(`${API}/stops?lat=${lat}&lon=${lon}&radius_km=${radiusKm}`);
-  if (!nearby || !nearby.length) return null;
-  return nearby
-    .map(s => ({ ...s, dist: haversineMeters(lat, lon, s.stop_lat, s.stop_lon) }))
-    .sort((a, b) => a.dist - b.dist)[0];
-}
-
-function walkSummary(meters) {
-  const m = Math.round(meters);
-  const mins = Math.max(1, Math.round(meters / 1000 / 5 * 60));
-  return `${m < 1000 ? m + " m" : (m/1000).toFixed(1) + " km"} (~${mins} min walk)`;
-}
-
-function currentAccentColor() {
-  return getComputedStyle(document.documentElement).getPropertyValue("--accent").trim();
-}
-
-function clearJourneyLayers() {
-  if (addressMarker) { map.removeLayer(addressMarker); addressMarker = null; }
-  if (addressLine) { map.removeLayer(addressLine); addressLine = null; }
-  if (originLine) { map.removeLayer(originLine); originLine = null; }
-}
-
-// Fallback used when we can't tell where the user actually is: just point
-// at the nearest stop to the searched address, same as clicking that stop.
-async function showAddressToStop(place) {
-  const nearest = await nearestStop(place.lat, place.lon);
-  if (!nearest) { alert("No transit stops found near that address."); return; }
-
-  clearJourneyLayers();
-  addressMarker = L.marker([place.lat, place.lon], { icon: makeAddressIcon() })
-    .addTo(map)
-    .bindTooltip(place.label.split(",")[0], { className: "stop-tooltip", direction: "top", offset: [0, -28] });
-  addressLine = L.polyline([[place.lat, place.lon], [nearest.stop_lat, nearest.stop_lon]], {
-    color: currentAccentColor(), weight: 3, dashArray: "6 8", opacity: 0.85,
-  }).addTo(map);
-  map.fitBounds(addressLine.getBounds(), { padding: [70, 70], maxZoom: 17 });
-
-  showArrivals(nearest, `📍 ${walkSummary(nearest.dist)} from your search`);
-}
-
-// The actual point of the search bar: from where the user is right now,
-// guide them all the way to the address they searched, not just to a stop
-// near it. Walk to the nearest stop, ride, walk from the arrival stop to
-// the destination.
-async function planJourneyToAddress(place) {
-  let origin = lastKnownPosition;
-  if (!origin) {
-    origin = await new Promise(resolve => {
-      if (!navigator.geolocation) return resolve(null);
-      navigator.geolocation.getCurrentPosition(
-        p => resolve({ lat: p.coords.latitude, lon: p.coords.longitude }),
-        () => resolve(null),
-        { timeout: 8000 }
-      );
-    });
-  }
-  if (!origin) {
-    alert("Can't tell where you are (location access is off), showing the nearest stop to your destination instead.");
-    return showAddressToStop(place);
-  }
-
-  const panel = document.getElementById("stop-section");
-  panel.innerHTML = `<h3>Trip to ${place.label.split(",")[0]}</h3><div class="muted">Finding the way there...</div>`;
-
-  const [originStop, destStop] = await Promise.all([
-    nearestStop(origin.lat, origin.lon),
-    nearestStop(place.lat, place.lon),
-  ]);
-  if (!originStop || !destStop) {
-    panel.innerHTML = `<h3>Trip to ${place.label.split(",")[0]}</h3><div class="muted">No transit stops found near ${!originStop ? "your location" : "that address"}.</div>`;
-    return;
-  }
-
-  const tripData = await apiFetch(`${API}/trip/plan?from=${originStop.stop_id}&to=${destStop.stop_id}`);
-
-  clearJourneyLayers();
-  addressMarker = L.marker([place.lat, place.lon], { icon: makeAddressIcon() })
-    .addTo(map)
-    .bindTooltip(place.label.split(",")[0], { className: "stop-tooltip", direction: "top", offset: [0, -28] });
-  const accentColor = currentAccentColor();
-  originLine = L.polyline([[origin.lat, origin.lon], [originStop.stop_lat, originStop.stop_lon]], {
-    color: accentColor, weight: 3, dashArray: "2 8", opacity: 0.7,
-  }).addTo(map);
-  addressLine = L.polyline([[destStop.stop_lat, destStop.stop_lon], [place.lat, place.lon]], {
-    color: accentColor, weight: 3, dashArray: "6 8", opacity: 0.85,
-  }).addTo(map);
-  map.fitBounds(L.latLngBounds([[origin.lat, origin.lon], [place.lat, place.lon],
-                                  [originStop.stop_lat, originStop.stop_lon], [destStop.stop_lat, destStop.stop_lon]]),
-                { padding: [60, 60], maxZoom: 17 });
-
-  currentStop = null; // this view isn't "a stop", the arrival-timer/reminder wiring doesn't apply here
-  const originWalk = haversineMeters(origin.lat, origin.lon, originStop.stop_lat, originStop.stop_lon);
-  const destWalk = destStop.dist;
-  const options = tripData && tripData.options && tripData.options.length ? renderTripOptions(tripData.options) :
-    `<div class="muted">No direct trips found from ${originStop.stop_name} to ${destStop.stop_name} right now. Try the trip planner on a nearby stop instead.</div>`;
-
-  panel.innerHTML = `
-    <h3>Trip to ${place.label.split(",")[0]}</h3>
-    <div class="journey-step">
-      <span class="journey-num">1</span>
-      <div>Walk ${walkSummary(originWalk)} to <b>${originStop.stop_name}</b></div>
-    </div>
-    <div class="journey-step">
-      <span class="journey-num">2</span>
-      <div class="journey-options">${options}</div>
-    </div>
-    <div class="journey-step">
-      <span class="journey-num">3</span>
-      <div>Walk ${walkSummary(destWalk)} from <b>${destStop.stop_name}</b> to your destination</div>
-    </div>
-  `;
-}
 
 // -------- Networking helper: centralizes offline detection --------
 let isOffline = false;
@@ -626,7 +450,7 @@ function markReminderButtons() {
 }
 
 function fireReminder(r) {
-  const title = `Time to leave — ${r.route}`;
+  const title = `Time to leave, ${r.route}`;
   const body = `${r.route}${r.headsign ? " to " + r.headsign : ""} arrives ~${fmtTime(r.arriveTs)}${r.stop ? " at " + r.stop : ""}. Leave now.`;
   if (r.notify && "Notification" in window && Notification.permission === "granted") {
     try { new Notification(title, { body }); return; } catch {}
@@ -660,17 +484,6 @@ function makeStopIcon(selected = false) {
     html: `<div class="stop-marker ${selected ? "selected" : ""}">${BUS_SVG}</div>`,
     iconSize: [24, 24],
     iconAnchor: [12, 12],
-  });
-}
-
-const PIN_SVG = `<svg viewBox="0 0 24 24"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z"/></svg>`;
-
-function makeAddressIcon() {
-  return L.divIcon({
-    className: "",
-    html: `<div class="address-marker">${PIN_SVG}</div>`,
-    iconSize: [28, 32],
-    iconAnchor: [14, 30],
   });
 }
 
@@ -843,32 +656,20 @@ function patternText(t) {
   return `${core} (${t.samples} samples)`;
 }
 
-function leaveByText(predicted_arrival_ts, typical, hasLiveDelay) {
-  const safetyMin = 2;
-  let extraBuffer = 0;
-  let reason;
+function haversineMeters(lat1, lon1, lat2, lon2) {
+  const R = 6371000, toRad = d => d * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat/2) ** 2 +
+            Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon/2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
 
-  if (hasLiveDelay) {
-    reason = `${safetyMin} min safety buffer (live GPS is trusted)`;
-  } else if (typical) {
-    const c = classifyPattern(typical);
-    if (c.kind === "early" || c.kind === "mixed") {
-      extraBuffer = Math.max(0, -c.lo);
-      reason = extraBuffer > 0
-        ? `${extraBuffer} min early buffer (past pattern) + ${safetyMin} min safety`
-        : `${safetyMin} min safety buffer`;
-    } else {
-      reason = `${safetyMin} min safety buffer (pattern says on time or late)`;
-    }
-  } else {
-    extraBuffer = 1;
-    reason = `${safetyMin + extraBuffer} min total buffer (no data yet)`;
-  }
-
-  const leaveAt = new Date(predicted_arrival_ts * 1000 - (extraBuffer + safetyMin) * 60000);
-  const hh = String(leaveAt.getHours()).padStart(2,"0");
-  const mm = String(leaveAt.getMinutes()).padStart(2,"0");
-  return `Be at stop by ${hh}:${mm} (${reason})`;
+// Minutes to walk from the user's last known position to a stop, at a
+// rough 5 km/h pace. Null when we don't know where the user is.
+function walkMinutesToStop(stop) {
+  if (!lastKnownPosition || !stop) return null;
+  const meters = haversineMeters(lastKnownPosition.lat, lastKnownPosition.lon, stop.stop_lat, stop.stop_lon);
+  return Math.max(1, Math.round(meters / 1000 / 5 * 60));
 }
 
 function renderArrival(a) {
@@ -914,15 +715,30 @@ function renderArrival(a) {
       extraBuffer = 1;
       reason = "No data yet, 3 min total buffer";
     }
-    const leaveAt = new Date(a.predicted_arrival * 1000 - (extraBuffer + safetyMin) * 60000);
+    const beAtStopTs = Math.round(a.predicted_arrival - (extraBuffer + safetyMin) * 60);
+    const walkMin = walkMinutesToStop(currentStop);
+
+    // With a location fix, "leave by" means leave *your current spot*, not
+    // just be at the stop, so fold the walk time into both the headline
+    // time and the reminder trigger. Without one, fall back to the old
+    // "be at stop by" framing since we have nothing to walk-adjust from.
+    const leaveTs = walkMin != null ? beAtStopTs - walkMin * 60 : beAtStopTs;
+    const leaveAt = new Date(leaveTs * 1000);
     const hh = String(leaveAt.getHours()).padStart(2,"0");
     const mm = String(leaveAt.getMinutes()).padStart(2,"0");
-    const leaveTs = Math.round(a.predicted_arrival - (extraBuffer + safetyMin) * 60);
+    const label = walkMin != null ? "Leave by" : "Be at stop by";
+    const fullReason = walkMin != null
+      ? `${walkMin} min walk to the stop, ${reason}`
+      : `${reason} · turn on location for a precise leave time`;
+    const beAtStopLine = walkMin != null
+      ? `<div class="reason">Be at stop by ${String(new Date(beAtStopTs*1000).getHours()).padStart(2,"0")}:${String(new Date(beAtStopTs*1000).getMinutes()).padStart(2,"0")}</div>`
+      : "";
     leaveBlock = `
       <div class="a-leave">
-        <div class="label">Be at stop by</div>
+        <div class="label">${label}</div>
         <div class="time">${hh}:${mm}</div>
-        <div class="reason">${reason}</div>
+        <div class="reason">${fullReason}</div>
+        ${beAtStopLine}
         <button class="remind-btn"
           data-key="${a.trip_id}_${currentStop ? currentStop.stop_id : ''}"
           data-leave="${leaveTs}" data-pred="${a.predicted_arrival}"
@@ -967,16 +783,13 @@ async function loadArrivals(stopId) {
   markReminderButtons();
 }
 
-async function showArrivals(stop, walkInfo) {
+async function showArrivals(stop) {
   currentStop = stop;
   const panel = document.getElementById("stop-section");
   const starred = isFav(stop.stop_id);
 
-  if (!walkInfo) clearJourneyLayers();
-
   panel.innerHTML = `
     <h3>Stop details</h3>
-    ${walkInfo ? `<div class="walk-info">${walkInfo}</div>` : ""}
     <div class="stop-header">
       <div class="stop-name">
         <span>${stop.stop_name}</span>
@@ -995,27 +808,14 @@ async function showArrivals(stop, walkInfo) {
       <canvas id="reliabilityChart" height="140"></canvas>
       <div class="muted" id="reliability-note"></div>
     </div>
-
-    <div class="section">
-      <h3>Plan a trip from here</h3>
-      <div class="planner-row">
-        <input id="plan-to" placeholder="Destination stop name..." />
-      </div>
-      <div class="planner-row">
-        <input id="plan-time" type="time" />
-        <button id="plan-btn">Find</button>
-      </div>
-      <div id="plan-results" class="muted">Type a destination + arrival time.</div>
-    </div>
   `;
 
   document.getElementById("star-btn").onclick = () => {
     toggleFav(stop);
     document.getElementById("star-btn").classList.toggle("on");
   };
-  document.getElementById("plan-btn").onclick = runPlanner;
 
-  // Arrivals — load now, then auto-refresh every 30s so the list stays live
+  // Arrivals: load now, then auto-refresh every 30s so the list stays live
   loadArrivals(stop.stop_id);
   clearInterval(arrivalsTimer);
   arrivalsTimer = setInterval(() => loadArrivals(stop.stop_id), 30000);
@@ -1067,66 +867,6 @@ async function showArrivals(stop, walkInfo) {
   }
 }
 
-// -------- Trip planner --------
-// Shared rendering for a /trip/plan `options` array, used by the "plan a
-// trip from here" panel and by the search bar's door-to-door journey view.
-function renderTripOptions(options) {
-  return options.map(o => {
-    const delayMin = o.typical_delay_sec != null ? Math.round(o.typical_delay_sec/60) : null;
-    const depHMS = fmtHMS(o.depart_at);
-    // suggested "leave by" = scheduled departure minus delay (if positive)
-    let leaveBy = depHMS;
-    if (delayMin != null && delayMin < 0) {
-      const [h,m] = depHMS.split(":").map(Number);
-      const mins = h*60 + m + delayMin;
-      leaveBy = `${String(Math.floor(mins/60)).padStart(2,"0")}:${String(mins%60).padStart(2,"0")}`;
-    }
-    const delayTxt = delayMin == null
-      ? '<span class="muted">no delay data yet for this route/hour</span>'
-      : (delayMin > 0
-        ? `<span class="delay-late">usually ${delayMin} min late</span>`
-        : delayMin < 0
-          ? `<span class="delay-bad">sometimes ${delayMin} min early, leave earlier</span>`
-          : '<span class="delay-on">usually on time</span>');
-    return `
-      <div class="plan-opt">
-        <div><span class="route" style="background:var(--accent);color:var(--accent-ink);padding:2px 8px;border-radius:6px;font-weight:600;">${o.route_short_name ?? o.route_id}</span>
-             ${o.trip_headsign ?? ""}</div>
-        <div>Depart <b>${depHMS}</b> → arrive <b>${fmtHMS(o.arrive_at)}</b></div>
-        <div>${delayTxt}</div>
-        <div class="leave-by">Leave by ${leaveBy}</div>
-      </div>`;
-  }).join("");
-}
-
-async function runPlanner() {
-  if (!currentStop) return;
-  const dest = document.getElementById("plan-to").value.trim();
-  const time = document.getElementById("plan-time").value;
-  if (!dest) return;
-
-  const out = document.getElementById("plan-results");
-  out.innerHTML = '<div class="muted">searching...</div>';
-
-  const matches = await apiFetch(`${API}/stops?q=${encodeURIComponent(dest)}`);
-  if (!matches) { out.innerHTML = '<div class="muted">Server not reachable. Try again shortly.</div>'; return; }
-  if (!matches.length) { out.innerHTML = '<div class="muted">No stop matched.</div>'; return; }
-  const destStop = matches[0];
-
-  const url = `${API}/trip/plan?from=${currentStop.stop_id}&to=${destStop.stop_id}` +
-              (time ? `&arrive_by=${time}` : "");
-  const data = await apiFetch(url);
-  if (!data) { out.innerHTML = '<div class="muted">Server not reachable. Try again shortly.</div>'; return; }
-
-  if (!data.options.length) {
-    out.innerHTML = `<div class="muted">No direct trips from ${currentStop.stop_name}
-                     to ${destStop.stop_name} before ${time || "tomorrow"}.</div>`;
-    return;
-  }
-
-  out.innerHTML = `<div class="muted">→ ${destStop.stop_name}</div>` + renderTripOptions(data.options);
-}
-
 // -------- Theme toggle --------
 const THEME_KEY = "adlt_theme";
 function applyTheme(theme) {
@@ -1174,42 +914,22 @@ function closeSuggestions() {
   activeSuggestions = [];
 }
 
-function renderSuggestions(stopMatches, addressMatches) {
-  if (!stopMatches.length && !addressMatches.length) {
-    suggBox.innerHTML = `<div class="sugg-empty">No stops or addresses found.</div>`;
+function renderSuggestions(stopMatches) {
+  if (!stopMatches.length) {
+    suggBox.innerHTML = `<div class="sugg-empty">No stops found.</div>`;
     suggBox.hidden = false;
     activeSuggestions = [];
     return;
   }
-  activeSuggestions = [
-    ...stopMatches.map(s => ({ type: "stop", data: s })),
-    ...addressMatches.map(a => ({ type: "address", data: a })),
-  ];
-  let html = "";
-  if (stopMatches.length) {
-    html += `<div class="sugg-group-label">Stops</div>`;
-    html += stopMatches.map((s, i) => `
-      <div class="sugg-item" data-index="${i}">
-        <span class="sugg-icon stop">${BUS_SVG}</span>
-        <span class="sugg-text">
-          <div class="sugg-title">${s.stop_name}</div>
-          <div class="sugg-sub">Stop ID ${s.stop_id}</div>
-        </span>
-      </div>`).join("");
-  }
-  if (addressMatches.length) {
-    const offset = stopMatches.length;
-    html += `<div class="sugg-group-label">Addresses</div>`;
-    html += addressMatches.map((a, i) => `
-      <div class="sugg-item" data-index="${offset + i}">
-        <span class="sugg-icon addr">${PIN_SVG}</span>
-        <span class="sugg-text">
-          <div class="sugg-title">${a.label.split(",")[0]}</div>
-          <div class="sugg-sub">${a.label}</div>
-        </span>
-      </div>`).join("");
-  }
-  suggBox.innerHTML = html;
+  activeSuggestions = stopMatches.map(s => ({ type: "stop", data: s }));
+  suggBox.innerHTML = stopMatches.map((s, i) => `
+    <div class="sugg-item" data-index="${i}">
+      <span class="sugg-icon stop">${BUS_SVG}</span>
+      <span class="sugg-text">
+        <div class="sugg-title">${s.stop_name}</div>
+        <div class="sugg-sub">Stop ID ${s.stop_id}</div>
+      </span>
+    </div>`).join("");
   suggBox.hidden = false;
   suggBox.querySelectorAll(".sugg-item").forEach(el => {
     el.addEventListener("click", () => selectSuggestion(Number(el.dataset.index)));
@@ -1219,14 +939,10 @@ function renderSuggestions(stopMatches, addressMatches) {
 function selectSuggestion(index) {
   const picked = activeSuggestions[index];
   if (!picked) return;
-  searchInput.value = picked.type === "stop" ? picked.data.stop_name : picked.data.label.split(",")[0];
+  searchInput.value = picked.data.stop_name;
   closeSuggestions();
-  if (picked.type === "stop") {
-    map.setView([picked.data.stop_lat, picked.data.stop_lon], 17);
-    showArrivals(picked.data);
-  } else {
-    planJourneyToAddress(picked.data);
-  }
+  map.setView([picked.data.stop_lat, picked.data.stop_lon], 17);
+  showArrivals(picked.data);
 }
 
 searchInput.addEventListener("input", () => {
@@ -1235,13 +951,10 @@ searchInput.addEventListener("input", () => {
   if (q.length < 3) { closeSuggestions(); return; }
   searchDebounce = setTimeout(async () => {
     const myToken = ++searchToken;
-    const [stopMatches, addressMatches] = await Promise.all([
-      apiFetch(`${API}/stops?q=${encodeURIComponent(q)}`).then(r => r || []),
-      geocodeAddress(q, 4),
-    ]);
+    const stopMatches = await apiFetch(`${API}/stops?q=${encodeURIComponent(q)}`).then(r => r || []);
     if (myToken !== searchToken) return; // a newer keystroke already started a fresher search
-    renderSuggestions(stopMatches.slice(0, 5), addressMatches);
-  }, 350);
+    renderSuggestions(stopMatches.slice(0, 8));
+  }, 300);
 });
 
 // Enter picks the top suggestion currently shown, same as Google Maps.
