@@ -55,11 +55,40 @@
     min-height:40px; transition: border-color 0.15s, background 0.15s;
   }
   header input:focus { border-color: var(--accent); background:var(--panel); }
+  header input { width:100%; border-radius:20px; }
   header button { cursor:pointer; font-weight:600; white-space:nowrap; }
   header button:hover { background:var(--card); border-color:var(--accent); }
   #theme-toggle { width:40px; padding:0; display:flex; align-items:center; justify-content:center;
                   font-size:16px; flex:none; }
   #status { font-size:12px; color:var(--muted); }
+
+  /* Search-as-you-type suggestions: stop names (local) + street addresses
+     (geocoded), Google Maps style. */
+  .search-wrap { position:relative; flex:1; min-width:160px; }
+  #search-suggestions {
+    position:absolute; top:calc(100% + 6px); left:0; right:0;
+    background:var(--panel); border:1px solid var(--line); border-radius:var(--radius-sm);
+    box-shadow:var(--shadow-md); max-height:340px; overflow-y:auto; z-index:1000;
+  }
+  .sugg-group-label { padding:8px 14px 4px; font-size:10px; font-weight:700;
+    text-transform:uppercase; letter-spacing:0.06em; color:var(--dim); }
+  .sugg-item {
+    display:flex; align-items:center; gap:10px; padding:10px 14px; cursor:pointer;
+    font-size:13px; border-top:1px solid var(--line);
+  }
+  .sugg-item:first-of-type, .sugg-group-label + .sugg-item { border-top:none; }
+  .sugg-item:hover, .sugg-item.active { background:var(--card2); }
+  .sugg-icon {
+    flex:none; width:26px; height:26px; border-radius:50%; display:flex;
+    align-items:center; justify-content:center;
+  }
+  .sugg-icon.stop { background:var(--info); }
+  .sugg-icon.addr { background:var(--accent); }
+  .sugg-icon svg { width:14px; height:14px; fill:#fff; }
+  .sugg-text { min-width:0; }
+  .sugg-title { font-weight:600; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .sugg-sub { font-size:11px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .sugg-empty { padding:14px; font-size:13px; color:var(--muted); text-align:center; }
 
   main { display:flex; height: calc(100vh - 53px); }
   #map { flex:1; }
@@ -70,7 +99,7 @@
   @media (max-width: 768px) {
     header { padding:10px 12px; }
     header h1 { font-size:15px; }
-    header input { flex:1; min-width:0; }
+    .search-wrap { min-width:0; }
     header button { padding:6px 10px; font-size:12px; }
     main { flex-direction: column; height: calc(100vh - 50px); }
     main > div:first-child { flex: 1; min-height: 200px; }
@@ -294,7 +323,10 @@
 <body>
 <header>
   <h1><span class="dot"></span>Adelaide Transit</h1>
-  <input id="search" placeholder="Search stop or address..." />
+  <div class="search-wrap">
+    <input id="search" placeholder="Search stop or address..." autocomplete="off" />
+    <div id="search-suggestions" hidden></div>
+  </div>
   <button id="locate">My location</button>
   <button id="theme-toggle" title="Toggle light/dark" aria-label="Toggle light/dark theme">&#9788;</button>
 </header>
@@ -376,18 +408,19 @@ function haversineMeters(lat1, lon1, lat2, lon2) {
 }
 
 // Free, keyless geocoding for the "search an address" fallback (light personal
-// usage only — see Nominatim's usage policy before scaling this up).
-async function geocodeAddress(q) {
+// usage only, see Nominatim's usage policy before scaling this up). Returns
+// several candidates so the user can pick the right one from a dropdown,
+// same as Google Maps, instead of us silently guessing the top hit.
+async function geocodeAddress(q, limit = 5) {
   try {
     const r = await fetch(
-      `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=au&q=${encodeURIComponent(q + ", Adelaide, Australia")}`
+      `https://nominatim.openstreetmap.org/search?format=json&limit=${limit}&countrycodes=au&q=${encodeURIComponent(q + ", Adelaide, Australia")}`
     );
     const results = await r.json();
-    if (!results.length) return null;
-    return { lat: parseFloat(results[0].lat), lon: parseFloat(results[0].lon), label: results[0].display_name };
+    return results.map(x => ({ lat: parseFloat(x.lat), lon: parseFloat(x.lon), label: x.display_name }));
   } catch (e) {
     console.warn("geocode failed:", e);
-    return null;
+    return [];
   }
 }
 
@@ -529,10 +562,12 @@ function makeStopIcon(selected = false) {
   });
 }
 
+const PIN_SVG = `<svg viewBox="0 0 24 24"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z"/></svg>`;
+
 function makeAddressIcon() {
   return L.divIcon({
     className: "",
-    html: `<div class="address-marker"><svg viewBox="0 0 24 24"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z"/></svg></div>`,
+    html: `<div class="address-marker">${PIN_SVG}</div>`,
     iconSize: [28, 32],
     iconAnchor: [14, 30],
   });
@@ -1023,26 +1058,101 @@ renderFavs();
 // The open stop's own arrivals refresh separately via arrivalsTimer.
 setInterval(loadStopsInView, 25000);
 
-document.getElementById("search").addEventListener("change", async e => {
-  const input = e.target;
-  const q = input.value.trim();
-  if (!q) return;
-  const originalPlaceholder = input.placeholder;
+// -------- Search-as-you-type suggestions (stop names + geocoded addresses) --------
+const searchInput = document.getElementById("search");
+const suggBox = document.getElementById("search-suggestions");
+let searchToken = 0;     // ignore stale async responses that resolve out of order
+let searchDebounce = null;
+let activeSuggestions = []; // flat list backing the currently rendered rows
 
-  const stops = await apiFetch(`${API}/stops?q=${encodeURIComponent(q)}`);
-  if (stops && stops.length) {
-    map.setView([stops[0].stop_lat, stops[0].stop_lon], 17);
-    showArrivals(stops[0]);
+function closeSuggestions() {
+  suggBox.hidden = true;
+  suggBox.innerHTML = "";
+  activeSuggestions = [];
+}
+
+function renderSuggestions(stopMatches, addressMatches) {
+  if (!stopMatches.length && !addressMatches.length) {
+    suggBox.innerHTML = `<div class="sugg-empty">No stops or addresses found.</div>`;
+    suggBox.hidden = false;
+    activeSuggestions = [];
     return;
   }
+  activeSuggestions = [
+    ...stopMatches.map(s => ({ type: "stop", data: s })),
+    ...addressMatches.map(a => ({ type: "address", data: a })),
+  ];
+  let html = "";
+  if (stopMatches.length) {
+    html += `<div class="sugg-group-label">Stops</div>`;
+    html += stopMatches.map((s, i) => `
+      <div class="sugg-item" data-index="${i}">
+        <span class="sugg-icon stop">${BUS_SVG}</span>
+        <span class="sugg-text">
+          <div class="sugg-title">${s.stop_name}</div>
+          <div class="sugg-sub">Stop ID ${s.stop_id}</div>
+        </span>
+      </div>`).join("");
+  }
+  if (addressMatches.length) {
+    const offset = stopMatches.length;
+    html += `<div class="sugg-group-label">Addresses</div>`;
+    html += addressMatches.map((a, i) => `
+      <div class="sugg-item" data-index="${offset + i}">
+        <span class="sugg-icon addr">${PIN_SVG}</span>
+        <span class="sugg-text">
+          <div class="sugg-title">${a.label.split(",")[0]}</div>
+          <div class="sugg-sub">${a.label}</div>
+        </span>
+      </div>`).join("");
+  }
+  suggBox.innerHTML = html;
+  suggBox.hidden = false;
+  suggBox.querySelectorAll(".sugg-item").forEach(el => {
+    el.addEventListener("click", () => selectSuggestion(Number(el.dataset.index)));
+  });
+}
 
-  // No stop matched by name — try it as a street address instead, Google
-  // Maps style, and hand off to whichever stop is nearest that address.
-  input.value = ""; input.placeholder = "Looking up address...";
-  const place = await geocodeAddress(q);
-  input.placeholder = originalPlaceholder;
-  if (!place) { alert(`Couldn't find a stop or address matching "${q}".`); return; }
-  await showAddressToStop(place);
+function selectSuggestion(index) {
+  const picked = activeSuggestions[index];
+  if (!picked) return;
+  searchInput.value = picked.type === "stop" ? picked.data.stop_name : picked.data.label.split(",")[0];
+  closeSuggestions();
+  if (picked.type === "stop") {
+    map.setView([picked.data.stop_lat, picked.data.stop_lon], 17);
+    showArrivals(picked.data);
+  } else {
+    showAddressToStop(picked.data);
+  }
+}
+
+searchInput.addEventListener("input", () => {
+  const q = searchInput.value.trim();
+  clearTimeout(searchDebounce);
+  if (q.length < 3) { closeSuggestions(); return; }
+  searchDebounce = setTimeout(async () => {
+    const myToken = ++searchToken;
+    const [stopMatches, addressMatches] = await Promise.all([
+      apiFetch(`${API}/stops?q=${encodeURIComponent(q)}`).then(r => r || []),
+      geocodeAddress(q, 4),
+    ]);
+    if (myToken !== searchToken) return; // a newer keystroke already started a fresher search
+    renderSuggestions(stopMatches.slice(0, 5), addressMatches);
+  }, 350);
+});
+
+// Enter picks the top suggestion currently shown, same as Google Maps.
+searchInput.addEventListener("keydown", e => {
+  if (e.key === "Enter" && activeSuggestions.length) {
+    e.preventDefault();
+    selectSuggestion(0);
+  } else if (e.key === "Escape") {
+    closeSuggestions();
+  }
+});
+
+document.addEventListener("click", e => {
+  if (!e.target.closest(".search-wrap")) closeSuggestions();
 });
 
 document.getElementById("locate").addEventListener("click", () => {
