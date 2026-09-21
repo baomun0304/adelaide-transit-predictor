@@ -213,21 +213,35 @@
   }
   .leaflet-control-attribution a { color: var(--info) !important; }
 
-  /* Stop markers */
+  /* Stop markers: bus glyph in a colored badge, distinct from the plain
+     dot used for the user's own location */
   .stop-marker {
-    width: 14px; height: 14px; border-radius: 50%;
+    width: 24px; height: 24px; border-radius: 50%;
     background: var(--info); border: 2px solid #fff;
-    box-shadow: 0 0 0 1px var(--info), 0 2px 6px rgba(0,0,0,0.2);
+    box-shadow: 0 0 0 1px var(--info), 0 2px 6px rgba(0,0,0,0.25);
+    display:flex; align-items:center; justify-content:center;
     transition: transform 0.12s, box-shadow 0.12s;
   }
+  .stop-marker svg { width:14px; height:14px; fill:#fff; }
   .stop-marker:hover {
-    transform: scale(1.4);
+    transform: scale(1.25);
     box-shadow: 0 0 0 2px var(--info), 0 0 14px color-mix(in srgb, var(--info) 60%, transparent);
   }
   .stop-marker.selected {
     background: var(--accent); border-color: #fff;
     box-shadow: 0 0 0 2px var(--accent), 0 0 18px color-mix(in srgb, var(--accent) 60%, transparent);
-    transform: scale(1.5);
+    transform: scale(1.3);
+  }
+
+  /* Searched-address pin + the walking-distance summary card */
+  .address-marker { width:28px; height:32px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.35)); }
+  .address-marker svg { width:28px; height:32px; fill: var(--accent); }
+  .walk-info {
+    display:flex; align-items:center; gap:8px;
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    border:1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+    border-radius: var(--radius-sm); padding:9px 12px; font-size:12px; font-weight:600;
+    color:var(--accent2); margin-bottom:14px;
   }
   .stop-tooltip {
     background: var(--panel) !important; color: var(--text) !important;
@@ -280,7 +294,7 @@
 <body>
 <header>
   <h1><span class="dot"></span>Adelaide Transit</h1>
-  <input id="search" placeholder="Search stop name..." />
+  <input id="search" placeholder="Search stop or address..." />
   <button id="locate">My location</button>
   <button id="theme-toggle" title="Toggle light/dark" aria-label="Toggle light/dark theme">&#9788;</button>
 </header>
@@ -321,10 +335,22 @@ console.log("API:", API);
 const map = L.map("map", { zoomControl: true, attributionControl: true })
   .setView([-34.9285, 138.6007], 14);
 
-// OpenStreetMap standard tiles, free, no API key required, street labels included
-L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-  maxZoom: 19,
-  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+// Esri "Gray Canvas": free, no API key, far less visual noise than standard
+// OSM tiles (no shop/POI icons competing with our own stop markers). Base
+// layer carries the shapes, Reference layer carries just the road/place
+// labels on top. Swaps light/dark to match the app's theme. Capped at Esri's
+// native zoom 16 for this style; CSS below rescales it for the couple of
+// zoom levels our app goes past that.
+const TILE_BASE_LIGHT = "https://services.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}";
+const TILE_REF_LIGHT  = "https://services.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}";
+const TILE_BASE_DARK  = "https://services.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}";
+const TILE_REF_DARK   = "https://services.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}";
+const TILE_ATTRIBUTION = 'Tiles &copy; Esri, DeLorme, NAVTEQ';
+const baseTiles = L.tileLayer(TILE_BASE_LIGHT, {
+  maxZoom: 19, maxNativeZoom: 16, attribution: TILE_ATTRIBUTION,
+}).addTo(map);
+const refTiles = L.tileLayer(TILE_REF_LIGHT, {
+  maxZoom: 19, maxNativeZoom: 16,
 }).addTo(map);
 
 const stopLayer = L.markerClusterGroup({
@@ -338,6 +364,56 @@ map.addLayer(stopLayer);
 let currentStop = null;
 let currentMarker = null;
 let reliabilityChart = null;
+let addressMarker = null;
+let addressLine = null;
+
+function haversineMeters(lat1, lon1, lat2, lon2) {
+  const R = 6371000, toRad = d => d * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat/2) ** 2 +
+            Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon/2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+// Free, keyless geocoding for the "search an address" fallback (light personal
+// usage only — see Nominatim's usage policy before scaling this up).
+async function geocodeAddress(q) {
+  try {
+    const r = await fetch(
+      `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=au&q=${encodeURIComponent(q + ", Adelaide, Australia")}`
+    );
+    const results = await r.json();
+    if (!results.length) return null;
+    return { lat: parseFloat(results[0].lat), lon: parseFloat(results[0].lon), label: results[0].display_name };
+  } catch (e) {
+    console.warn("geocode failed:", e);
+    return null;
+  }
+}
+
+// Point the map at a searched address and hand off to its nearest stop.
+async function showAddressToStop(place) {
+  const nearby = await apiFetch(`${API}/stops?lat=${place.lat}&lon=${place.lon}&radius_km=1.5`);
+  if (!nearby || !nearby.length) { alert("No transit stops found near that address."); return; }
+  const nearest = nearby
+    .map(s => ({ ...s, dist: haversineMeters(place.lat, place.lon, s.stop_lat, s.stop_lon) }))
+    .sort((a, b) => a.dist - b.dist)[0];
+
+  if (addressMarker) map.removeLayer(addressMarker);
+  if (addressLine) map.removeLayer(addressLine);
+  addressMarker = L.marker([place.lat, place.lon], { icon: makeAddressIcon() })
+    .addTo(map)
+    .bindTooltip(place.label.split(",")[0], { className: "stop-tooltip", direction: "top", offset: [0, -28] });
+  const accentColor = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim();
+  addressLine = L.polyline([[place.lat, place.lon], [nearest.stop_lat, nearest.stop_lon]], {
+    color: accentColor, weight: 3, dashArray: "6 8", opacity: 0.85,
+  }).addTo(map);
+  map.fitBounds(addressLine.getBounds(), { padding: [70, 70], maxZoom: 17 });
+
+  const meters = Math.round(nearest.dist);
+  const mins = Math.max(1, Math.round(nearest.dist / 1000 / 5 * 60));
+  showArrivals(nearest, `📍 ${meters < 1000 ? meters + " m" : (meters/1000).toFixed(1) + " km"} · ~${mins} min walk from your search`);
+}
 
 // -------- Networking helper: centralizes offline detection --------
 let isOffline = false;
@@ -442,12 +518,23 @@ setInterval(() => {
   }
 }, 1000);
 
+const BUS_SVG = `<svg viewBox="0 0 24 24"><path d="M4 16c0 .88.39 1.67 1 2.22V20c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h8v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1.78c.61-.55 1-1.34 1-2.22V6c0-3.5-3.58-4-8-4s-8 .5-8 4v10zm3.5 1c-.83 0-1.5-.67-1.5-1.5S6.67 14 7.5 14s1.5.67 1.5 1.5S8.33 17 7.5 17zm9 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zM18 11H6V6h12v5z"/></svg>`;
+
 function makeStopIcon(selected = false) {
   return L.divIcon({
     className: "",
-    html: `<div class="stop-marker ${selected ? "selected" : ""}"></div>`,
-    iconSize: [14, 14],
-    iconAnchor: [7, 7],
+    html: `<div class="stop-marker ${selected ? "selected" : ""}">${BUS_SVG}</div>`,
+    iconSize: [24, 24],
+    iconAnchor: [12, 12],
+  });
+}
+
+function makeAddressIcon() {
+  return L.divIcon({
+    className: "",
+    html: `<div class="address-marker"><svg viewBox="0 0 24 24"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z"/></svg></div>`,
+    iconSize: [28, 32],
+    iconAnchor: [14, 30],
   });
 }
 
@@ -744,13 +831,19 @@ async function loadArrivals(stopId) {
   markReminderButtons();
 }
 
-async function showArrivals(stop) {
+async function showArrivals(stop, walkInfo) {
   currentStop = stop;
   const panel = document.getElementById("stop-section");
   const starred = isFav(stop.stop_id);
 
+  if (!walkInfo) {
+    if (addressMarker) { map.removeLayer(addressMarker); addressMarker = null; }
+    if (addressLine) { map.removeLayer(addressLine); addressLine = null; }
+  }
+
   panel.innerHTML = `
     <h3>Stop details</h3>
+    ${walkInfo ? `<div class="walk-info">${walkInfo}</div>` : ""}
     <div class="stop-header">
       <div class="stop-name">
         <span>${stop.stop_name}</span>
@@ -907,6 +1000,8 @@ function applyTheme(theme) {
   const isDark = theme === "dark" ||
     (theme !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);
   document.getElementById("theme-toggle").innerHTML = isDark ? "&#9789;" : "&#9788;";
+  baseTiles.setUrl(isDark ? TILE_BASE_DARK : TILE_BASE_LIGHT);
+  refTiles.setUrl(isDark ? TILE_REF_DARK : TILE_REF_LIGHT);
 }
 function toggleTheme() {
   const current = localStorage.getItem(THEME_KEY);
@@ -929,10 +1024,25 @@ renderFavs();
 setInterval(loadStopsInView, 25000);
 
 document.getElementById("search").addEventListener("change", async e => {
-  const q = e.target.value.trim();
+  const input = e.target;
+  const q = input.value.trim();
   if (!q) return;
+  const originalPlaceholder = input.placeholder;
+
   const stops = await apiFetch(`${API}/stops?q=${encodeURIComponent(q)}`);
-  if (stops && stops[0]) { map.setView([stops[0].stop_lat, stops[0].stop_lon], 17); showArrivals(stops[0]); }
+  if (stops && stops.length) {
+    map.setView([stops[0].stop_lat, stops[0].stop_lon], 17);
+    showArrivals(stops[0]);
+    return;
+  }
+
+  // No stop matched by name — try it as a street address instead, Google
+  // Maps style, and hand off to whichever stop is nearest that address.
+  input.value = ""; input.placeholder = "Looking up address...";
+  const place = await geocodeAddress(q);
+  input.placeholder = originalPlaceholder;
+  if (!place) { alert(`Couldn't find a stop or address matching "${q}".`); return; }
+  await showAddressToStop(place);
 });
 
 document.getElementById("locate").addEventListener("click", () => {
