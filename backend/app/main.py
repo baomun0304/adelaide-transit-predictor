@@ -103,6 +103,25 @@ def _typical_delay(conn, route_id, stop_id, hour, is_weekend):
                 "scope": scope,
                 "day_type": "weekend" if is_weekend else "weekday",
             }
+
+    # realtime_updates only keeps a rolling window (cleanup.py aggregates and
+    # deletes older rows). Fall back to that older history rather than
+    # reporting "no data" once a route+stop ages out of the raw table.
+    agg = conn.execute("""
+        SELECT AVG(avg_delay) AS p50, MIN(min_delay) AS p25, MAX(max_delay) AS p75,
+               SUM(samples) AS samples
+        FROM delay_hourly
+        WHERE route_id = ? AND stop_id = ?
+    """, (route_id, stop_id)).fetchone()
+    if agg and agg["samples"] and agg["samples"] >= 3:
+        return {
+            "p25_sec": int(agg["p25"]),
+            "p50_sec": int(round(agg["p50"])),
+            "p75_sec": int(agg["p75"]),
+            "samples": agg["samples"],
+            "scope": "all-time-aggregated",
+            "day_type": "weekend" if is_weekend else "weekday",
+        }
     return None
 
 

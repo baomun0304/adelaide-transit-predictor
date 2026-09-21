@@ -56,6 +56,7 @@ def run(keep_days: int = 7):
               COUNT(*)
             FROM realtime_updates
             WHERE fetched_at < ? AND delay_seconds IS NOT NULL
+              AND ABS(delay_seconds) <= 7200 AND has_gps = 1
             GROUP BY date, hour, route_id, stop_id
         """, (cutoff,))
 
