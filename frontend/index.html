@@ -217,6 +217,15 @@
   .plan-opt { background:var(--card); padding:10px 12px; border-radius:var(--radius-sm);
               border:1px solid var(--line); margin-bottom:6px; font-size:13px; }
 
+  /* Door-to-door journey view: search bar -> nearest stop -> ride -> destination */
+  .journey-step { display:flex; gap:12px; margin-bottom:18px; font-size:13px; }
+  .journey-num {
+    flex:none; width:24px; height:24px; border-radius:50%; background:var(--accent);
+    color:var(--accent-ink); font-weight:700; font-size:12px;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .journey-options { flex:1; min-width:0; }
+
   .muted { color:var(--muted); font-size:13px; }
   canvas { background:var(--card); border-radius:var(--radius); padding:8px;
            border:1px solid var(--line); }
@@ -398,6 +407,7 @@ let currentMarker = null;
 let reliabilityChart = null;
 let addressMarker = null;
 let addressLine = null;
+let originLine = null;
 
 function haversineMeters(lat1, lon1, lat2, lon2) {
   const R = 6371000, toRad = d => d * Math.PI / 180;
@@ -424,28 +434,119 @@ async function geocodeAddress(q, limit = 5) {
   }
 }
 
-// Point the map at a searched address and hand off to its nearest stop.
-async function showAddressToStop(place) {
-  const nearby = await apiFetch(`${API}/stops?lat=${place.lat}&lon=${place.lon}&radius_km=1.5`);
-  if (!nearby || !nearby.length) { alert("No transit stops found near that address."); return; }
-  const nearest = nearby
-    .map(s => ({ ...s, dist: haversineMeters(place.lat, place.lon, s.stop_lat, s.stop_lon) }))
+async function nearestStop(lat, lon, radiusKm = 1.5) {
+  const nearby = await apiFetch(`${API}/stops?lat=${lat}&lon=${lon}&radius_km=${radiusKm}`);
+  if (!nearby || !nearby.length) return null;
+  return nearby
+    .map(s => ({ ...s, dist: haversineMeters(lat, lon, s.stop_lat, s.stop_lon) }))
     .sort((a, b) => a.dist - b.dist)[0];
+}
 
-  if (addressMarker) map.removeLayer(addressMarker);
-  if (addressLine) map.removeLayer(addressLine);
+function walkSummary(meters) {
+  const m = Math.round(meters);
+  const mins = Math.max(1, Math.round(meters / 1000 / 5 * 60));
+  return `${m < 1000 ? m + " m" : (m/1000).toFixed(1) + " km"} (~${mins} min walk)`;
+}
+
+function currentAccentColor() {
+  return getComputedStyle(document.documentElement).getPropertyValue("--accent").trim();
+}
+
+function clearJourneyLayers() {
+  if (addressMarker) { map.removeLayer(addressMarker); addressMarker = null; }
+  if (addressLine) { map.removeLayer(addressLine); addressLine = null; }
+  if (originLine) { map.removeLayer(originLine); originLine = null; }
+}
+
+// Fallback used when we can't tell where the user actually is: just point
+// at the nearest stop to the searched address, same as clicking that stop.
+async function showAddressToStop(place) {
+  const nearest = await nearestStop(place.lat, place.lon);
+  if (!nearest) { alert("No transit stops found near that address."); return; }
+
+  clearJourneyLayers();
   addressMarker = L.marker([place.lat, place.lon], { icon: makeAddressIcon() })
     .addTo(map)
     .bindTooltip(place.label.split(",")[0], { className: "stop-tooltip", direction: "top", offset: [0, -28] });
-  const accentColor = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim();
   addressLine = L.polyline([[place.lat, place.lon], [nearest.stop_lat, nearest.stop_lon]], {
-    color: accentColor, weight: 3, dashArray: "6 8", opacity: 0.85,
+    color: currentAccentColor(), weight: 3, dashArray: "6 8", opacity: 0.85,
   }).addTo(map);
   map.fitBounds(addressLine.getBounds(), { padding: [70, 70], maxZoom: 17 });
 
-  const meters = Math.round(nearest.dist);
-  const mins = Math.max(1, Math.round(nearest.dist / 1000 / 5 * 60));
-  showArrivals(nearest, `📍 ${meters < 1000 ? meters + " m" : (meters/1000).toFixed(1) + " km"} · ~${mins} min walk from your search`);
+  showArrivals(nearest, `📍 ${walkSummary(nearest.dist)} from your search`);
+}
+
+// The actual point of the search bar: from where the user is right now,
+// guide them all the way to the address they searched, not just to a stop
+// near it. Walk to the nearest stop, ride, walk from the arrival stop to
+// the destination.
+async function planJourneyToAddress(place) {
+  let origin = lastKnownPosition;
+  if (!origin) {
+    origin = await new Promise(resolve => {
+      if (!navigator.geolocation) return resolve(null);
+      navigator.geolocation.getCurrentPosition(
+        p => resolve({ lat: p.coords.latitude, lon: p.coords.longitude }),
+        () => resolve(null),
+        { timeout: 8000 }
+      );
+    });
+  }
+  if (!origin) {
+    alert("Can't tell where you are (location access is off), showing the nearest stop to your destination instead.");
+    return showAddressToStop(place);
+  }
+
+  const panel = document.getElementById("stop-section");
+  panel.innerHTML = `<h3>Trip to ${place.label.split(",")[0]}</h3><div class="muted">Finding the way there...</div>`;
+
+  const [originStop, destStop] = await Promise.all([
+    nearestStop(origin.lat, origin.lon),
+    nearestStop(place.lat, place.lon),
+  ]);
+  if (!originStop || !destStop) {
+    panel.innerHTML = `<h3>Trip to ${place.label.split(",")[0]}</h3><div class="muted">No transit stops found near ${!originStop ? "your location" : "that address"}.</div>`;
+    return;
+  }
+
+  const tripData = await apiFetch(`${API}/trip/plan?from=${originStop.stop_id}&to=${destStop.stop_id}`);
+
+  clearJourneyLayers();
+  addressMarker = L.marker([place.lat, place.lon], { icon: makeAddressIcon() })
+    .addTo(map)
+    .bindTooltip(place.label.split(",")[0], { className: "stop-tooltip", direction: "top", offset: [0, -28] });
+  const accentColor = currentAccentColor();
+  originLine = L.polyline([[origin.lat, origin.lon], [originStop.stop_lat, originStop.stop_lon]], {
+    color: accentColor, weight: 3, dashArray: "2 8", opacity: 0.7,
+  }).addTo(map);
+  addressLine = L.polyline([[destStop.stop_lat, destStop.stop_lon], [place.lat, place.lon]], {
+    color: accentColor, weight: 3, dashArray: "6 8", opacity: 0.85,
+  }).addTo(map);
+  map.fitBounds(L.latLngBounds([[origin.lat, origin.lon], [place.lat, place.lon],
+                                  [originStop.stop_lat, originStop.stop_lon], [destStop.stop_lat, destStop.stop_lon]]),
+                { padding: [60, 60], maxZoom: 17 });
+
+  currentStop = null; // this view isn't "a stop", the arrival-timer/reminder wiring doesn't apply here
+  const originWalk = haversineMeters(origin.lat, origin.lon, originStop.stop_lat, originStop.stop_lon);
+  const destWalk = destStop.dist;
+  const options = tripData && tripData.options && tripData.options.length ? renderTripOptions(tripData.options) :
+    `<div class="muted">No direct trips found from ${originStop.stop_name} to ${destStop.stop_name} right now. Try the trip planner on a nearby stop instead.</div>`;
+
+  panel.innerHTML = `
+    <h3>Trip to ${place.label.split(",")[0]}</h3>
+    <div class="journey-step">
+      <span class="journey-num">1</span>
+      <div>Walk ${walkSummary(originWalk)} to <b>${originStop.stop_name}</b></div>
+    </div>
+    <div class="journey-step">
+      <span class="journey-num">2</span>
+      <div class="journey-options">${options}</div>
+    </div>
+    <div class="journey-step">
+      <span class="journey-num">3</span>
+      <div>Walk ${walkSummary(destWalk)} from <b>${destStop.stop_name}</b> to your destination</div>
+    </div>
+  `;
 }
 
 // -------- Networking helper: centralizes offline detection --------
@@ -871,10 +972,7 @@ async function showArrivals(stop, walkInfo) {
   const panel = document.getElementById("stop-section");
   const starred = isFav(stop.stop_id);
 
-  if (!walkInfo) {
-    if (addressMarker) { map.removeLayer(addressMarker); addressMarker = null; }
-    if (addressLine) { map.removeLayer(addressLine); addressLine = null; }
-  }
+  if (!walkInfo) clearJourneyLayers();
 
   panel.innerHTML = `
     <h3>Stop details</h3>
@@ -970,6 +1068,37 @@ async function showArrivals(stop, walkInfo) {
 }
 
 // -------- Trip planner --------
+// Shared rendering for a /trip/plan `options` array, used by the "plan a
+// trip from here" panel and by the search bar's door-to-door journey view.
+function renderTripOptions(options) {
+  return options.map(o => {
+    const delayMin = o.typical_delay_sec != null ? Math.round(o.typical_delay_sec/60) : null;
+    const depHMS = fmtHMS(o.depart_at);
+    // suggested "leave by" = scheduled departure minus delay (if positive)
+    let leaveBy = depHMS;
+    if (delayMin != null && delayMin < 0) {
+      const [h,m] = depHMS.split(":").map(Number);
+      const mins = h*60 + m + delayMin;
+      leaveBy = `${String(Math.floor(mins/60)).padStart(2,"0")}:${String(mins%60).padStart(2,"0")}`;
+    }
+    const delayTxt = delayMin == null
+      ? '<span class="muted">no delay data yet for this route/hour</span>'
+      : (delayMin > 0
+        ? `<span class="delay-late">usually ${delayMin} min late</span>`
+        : delayMin < 0
+          ? `<span class="delay-bad">sometimes ${delayMin} min early, leave earlier</span>`
+          : '<span class="delay-on">usually on time</span>');
+    return `
+      <div class="plan-opt">
+        <div><span class="route" style="background:var(--accent);color:var(--accent-ink);padding:2px 8px;border-radius:6px;font-weight:600;">${o.route_short_name ?? o.route_id}</span>
+             ${o.trip_headsign ?? ""}</div>
+        <div>Depart <b>${depHMS}</b> → arrive <b>${fmtHMS(o.arrive_at)}</b></div>
+        <div>${delayTxt}</div>
+        <div class="leave-by">Leave by ${leaveBy}</div>
+      </div>`;
+  }).join("");
+}
+
 async function runPlanner() {
   if (!currentStop) return;
   const dest = document.getElementById("plan-to").value.trim();
@@ -995,33 +1124,7 @@ async function runPlanner() {
     return;
   }
 
-  out.innerHTML = `<div class="muted">→ ${destStop.stop_name}</div>` +
-    data.options.map(o => {
-      const delayMin = o.typical_delay_sec != null ? Math.round(o.typical_delay_sec/60) : null;
-      const depHMS = fmtHMS(o.depart_at);
-      // suggested "leave by" = scheduled departure minus delay (if positive)
-      let leaveBy = depHMS;
-      if (delayMin != null && delayMin < 0) {
-        const [h,m] = depHMS.split(":").map(Number);
-        const mins = h*60 + m + delayMin;
-        leaveBy = `${String(Math.floor(mins/60)).padStart(2,"0")}:${String(mins%60).padStart(2,"0")}`;
-      }
-      const delayTxt = delayMin == null
-        ? '<span class="muted">no delay data yet for this route/hour</span>'
-        : (delayMin > 0
-          ? `<span class="delay-late">usually ${delayMin} min late</span>`
-          : delayMin < 0
-            ? `<span class="delay-bad">sometimes ${delayMin} min early, leave earlier</span>`
-            : '<span class="delay-on">usually on time</span>');
-      return `
-        <div class="plan-opt">
-          <div><span class="route" style="background:var(--accent);color:var(--accent-ink);padding:2px 8px;border-radius:6px;font-weight:600;">${o.route_short_name ?? o.route_id}</span>
-               ${o.trip_headsign ?? ""}</div>
-          <div>Depart <b>${depHMS}</b> → arrive <b>${fmtHMS(o.arrive_at)}</b></div>
-          <div>${delayTxt}</div>
-          <div class="leave-by">Leave by ${leaveBy}</div>
-        </div>`;
-    }).join("");
+  out.innerHTML = `<div class="muted">→ ${destStop.stop_name}</div>` + renderTripOptions(data.options);
 }
 
 // -------- Theme toggle --------
@@ -1122,7 +1225,7 @@ function selectSuggestion(index) {
     map.setView([picked.data.stop_lat, picked.data.stop_lon], 17);
     showArrivals(picked.data);
   } else {
-    showAddressToStop(picked.data);
+    planJourneyToAddress(picked.data);
   }
 }
 
