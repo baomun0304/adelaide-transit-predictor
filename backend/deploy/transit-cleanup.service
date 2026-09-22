@@ -1,0 +1,8 @@
+[Unit]
+Description=Prune and aggregate old realtime_updates rows
+
+[Service]
+Type=oneshot
+User=opc
+WorkingDirectory=/home/opc/adelaide-transit-predictor/backend
+ExecStart=/home/opc/adelaide-transit-predictor/backend/.venv/bin/python -m app.cleanup --keep-days 7

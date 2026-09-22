@@ -1,0 +1,16 @@
+[Unit]
+Description=Adelaide Transit Predictor GTFS-Realtime collector
+After=network.target
+
+[Service]
+Type=simple
+User=opc
+WorkingDirectory=/home/opc/adelaide-transit-predictor/backend
+ExecStart=/home/opc/adelaide-transit-predictor/backend/.venv/bin/python -m app.gtfs_realtime
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
