@@ -1,0 +1,10 @@
+[Unit]
+Description=Weekly backup of transit.db
+
+[Service]
+Type=oneshot
+User=opc
+Nice=19
+IOSchedulingClass=idle
+TimeoutStartSec=infinity
+ExecStart=/opt/adelaide-transit/backend/deploy/transit-backup.sh

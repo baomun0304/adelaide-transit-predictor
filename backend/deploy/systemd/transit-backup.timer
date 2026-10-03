@@ -1,0 +1,8 @@
+[Unit]
+Description=Run transit-backup weekly in the collector quiet hours
+
+[Timer]
+OnCalendar=Wed *-*-* 02:30:00
+
+[Install]
+WantedBy=timers.target
