@@ -1,5 +1,6 @@
 import time
 from datetime import datetime, timedelta
+import anyio.to_thread
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from .db import get_conn, init_db
@@ -17,13 +18,38 @@ app.add_middleware(
 
 
 @app.on_event("startup")
-def startup():
+async def startup():
     init_db()
+    # Few worker threads: extra requests queue instead of all fighting for the
+    # CPU of a tiny server, which previously starved sshd and froze the box.
+    anyio.to_thread.current_default_thread_limiter().total_tokens = 6
+
+
+_cache = {}
+
+
+def _cached(key, ttl, fn):
+    """Tiny in-process TTL cache. History-based stats change slowly, so
+    recomputing them on every poll only burns CPU."""
+    now = time.monotonic()
+    hit = _cache.get(key)
+    if hit and now - hit[0] < ttl:
+        return hit[1]
+    val = fn()
+    if len(_cache) > 20000:  # ponytail: crude bound, switch to LRU if keys really grow
+        _cache.clear()
+    _cache[key] = (now, val)
+    return val
 
 
 @app.get("/")
 def root():
     return {"status": "ok", "service": "Adelaide Transit Predictor"}
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
 
 
 @app.get("/stops")
@@ -203,7 +229,10 @@ def next_arrivals(stop_id: str, limit: int = 50):
             if predicted < now - 120:
                 continue
             hour = ((sched_epoch - midnight_ts) // 3600) % 24
-            typical = _typical_delay(conn, r["route_id"], stop_id, hour, is_weekend)
+            typical = _cached(
+                ("typ", r["route_id"], stop_id, hour, is_weekend), 1800,
+                lambda: _typical_delay(conn, r["route_id"], stop_id, hour, is_weekend),
+            )
             arrivals.append({
                 "trip_id": r["trip_id"],
                 "route_id": r["route_id"],
@@ -231,6 +260,10 @@ def next_arrivals(stop_id: str, limit: int = 50):
 
 @app.get("/route/{route_id}/reliability")
 def route_reliability(route_id: str):
+    return _cached(("rr", route_id), 900, lambda: _route_reliability(route_id))
+
+
+def _route_reliability(route_id: str):
     """Average delay by hour-of-day for this route."""
     with get_conn() as conn:
         rows = conn.execute("""
@@ -248,6 +281,10 @@ def route_reliability(route_id: str):
 
 @app.get("/stop/{stop_id}/reliability")
 def stop_reliability(stop_id: str):
+    return _cached(("sr", stop_id), 900, lambda: _stop_reliability(stop_id))
+
+
+def _stop_reliability(stop_id: str):
     """Reliability for this stop: combined per-hour + per-route breakdown."""
     with get_conn() as conn:
         by_hour = conn.execute("""
@@ -416,6 +453,11 @@ def list_routes():
 def stats():
     with get_conn() as conn:
         counts = {}
-        for tbl in ("routes", "stops", "trips", "stop_times", "realtime_updates"):
+        for tbl in ("routes", "stops", "trips", "stop_times"):
             counts[tbl] = conn.execute(f"SELECT COUNT(*) AS n FROM {tbl}").fetchone()["n"]
+        # COUNT(*) scans every row (minutes at 14M+ rows). MAX(rowid) is instant and
+        # equals the count while nothing is deleted. ponytail: approximate if rows are ever deleted.
+        counts["realtime_updates"] = conn.execute(
+            "SELECT COALESCE(MAX(rowid), 0) AS n FROM realtime_updates"
+        ).fetchone()["n"]
     return counts

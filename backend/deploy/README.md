@@ -1,43 +1,31 @@
-# Deploy (Oracle Linux VM)
+# Server notes (Oracle Linux VM, repo at /opt/adelaide-transit)
 
-Run once, after SSH access works. Paths assume the repo is cloned at
-`/home/opc/adelaide-transit-predictor` with a venv at `backend/.venv`,
-adjust the `.service` files first if your layout differs.
+`transit-api`, `transit-collector` are systemd services (already installed,
+`Restart=always`). `systemd/` holds the extra config applied on 2026-10-03 so a
+slow request can no longer starve the whole 1GB VM:
 
-```bash
-cd ~/adelaide-transit-predictor
-python3 -m venv backend/.venv
-backend/.venv/bin/pip install -r backend/requirements.txt
+| file | install to |
+|---|---|
+| `transit-api.service.d-limits.conf` | `/etc/systemd/system/transit-api.service.d/limits.conf` |
+| `transit-collector.service.d-limits.conf` | `/etc/systemd/system/transit-collector.service.d/limits.conf` |
+| `sshd.service.d-priority.conf` | `/etc/systemd/system/sshd.service.d/priority.conf` |
+| `journald-transit.conf` | `/etc/systemd/journald.conf.d/transit.conf` |
+| `sysstat-collect.timer.d-1min.conf` | `/etc/systemd/system/sysstat-collect.timer.d/1min.conf` |
 
-sudo cp backend/deploy/transit-api.service /etc/systemd/system/
-sudo cp backend/deploy/transit-collector.service /etc/systemd/system/
-sudo cp backend/deploy/transit-cleanup.service /etc/systemd/system/
-sudo cp backend/deploy/transit-cleanup.timer /etc/systemd/system/
-sudo mkdir -p /etc/systemd/journald.conf.d
-sudo cp backend/deploy/journald-transit-limits.conf /etc/systemd/journald.conf.d/
+Then `sudo systemctl daemon-reload`, restart the units, `sudo systemctl restart systemd-journald`,
+`sudo dnf install -y sysstat` and enable `sysstat sysstat-collect.timer`.
 
-sudo systemctl daemon-reload
-sudo systemctl restart systemd-journald
-sudo systemctl enable --now transit-api transit-collector transit-cleanup.timer
+History for diagnosing a hang next time: `journalctl -b -1` (persistent) and `sar -u -r -q -f /var/log/sa/saDD`.
 
-# verify
-systemctl status transit-api transit-collector transit-cleanup.timer
-systemctl list-timers transit-cleanup.timer
-df -h /
-```
+## Data retention
 
-## Why this exists
+Raw `realtime_updates` is kept forever on purpose (ML training data). The
+`transit-cleanup.timer` on the server (8-week delete, `retention_cleanup.py`)
+is deliberately left disabled, do not enable it. `app/cleanup.py` also deletes
+raw rows, so do not schedule it either.
 
-`backend/scripts/run_cleanup.ps1` only ever ran on the original Windows
-PC setup (`.venv\Scripts\Activate.ps1`, PowerShell), it has no effect on
-the Oracle Linux VM, there is no Linux cron/systemd equivalent for it. So
-since the move to the VM, `realtime_updates` and the journal log have
-both grown unbounded, the repeated disk-full crashes are that, not a
-one-off bug.
+## One-off: covering indexes
 
-`transit-cleanup.timer` runs `python -m app.cleanup --keep-days 7` daily,
-same script, same 7-day raw-row retention, correct here (`VACUUM` also
-runs each time so the `.db` file actually shrinks, not just the row
-count). The journald drop-in caps total log disk usage at 200MB
-regardless of what any service prints, so a chatty process can't repeat
-the "No space left on device" crash on its own.
+`python -m app.add_indexes` (run from `backend/`) builds two covering indexes on
+`realtime_updates`. It holds the write lock for minutes, so it only runs in the
+collector's quiet hours (01:00-05:00). It is not in `init_db()` on purpose.

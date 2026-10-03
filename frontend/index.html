@@ -763,6 +763,7 @@ function renderArrival(a) {
 
 // -------- Stop panel: arrivals + reliability + planner --------
 let arrivalsTimer = null;
+let arrivalsRefresh = null;
 
 // Fetch + render the arrivals list. Called on open and every 30s so times stay live.
 async function loadArrivals(stopId) {
@@ -818,7 +819,8 @@ async function showArrivals(stop) {
   // Arrivals: load now, then auto-refresh every 30s so the list stays live
   loadArrivals(stop.stop_id);
   clearInterval(arrivalsTimer);
-  arrivalsTimer = setInterval(() => loadArrivals(stop.stop_id), 30000);
+  arrivalsRefresh = () => loadArrivals(stop.stop_id);
+  arrivalsTimer = setInterval(() => { if (!document.hidden) arrivalsRefresh(); }, 30000);
 
   // Reliability chart (fetched once per stop open, doesn't need live polling)
   const data = await apiFetch(`${API}/stop/${stop.stop_id}/reliability`);
@@ -899,7 +901,14 @@ renderFavs();
 
 // Keep the map's visible stop list fresh without requiring the user to pan.
 // The open stop's own arrivals refresh separately via arrivalsTimer.
-setInterval(loadStopsInView, 25000);
+setInterval(() => { if (!document.hidden) loadStopsInView(); }, 25000);
+
+// Polling pauses while the tab is hidden (saves the small server); catch up on return.
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) return;
+  loadStopsInView();
+  if (arrivalsRefresh) arrivalsRefresh();
+});
 
 // -------- Search-as-you-type suggestions (stop names + geocoded addresses) --------
 const searchInput = document.getElementById("search");
