@@ -664,12 +664,36 @@ function haversineMeters(lat1, lon1, lat2, lon2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-// Minutes to walk from the user's last known position to a stop, at a
-// rough 5 km/h pace. Null when we don't know where the user is.
+// Walking time to a stop. Straight-line distance badly underestimates it (streets,
+// corners, crossings: in a city grid the real path is ~1.3-1.5x longer), so ask a
+// pedestrian router for the real route. If that fails, fall back to straight-line
+// x1.35 at 5 km/h. Rounded UP so we never tell someone they have more time than they do.
+let walkCache = { key: null, min: null, ok: false, at: 0 };
+
+async function refreshWalkMinutes(stop) {
+  if (!lastKnownPosition || !stop) { walkCache = { key: null, min: null, ok: false, at: 0 }; return; }
+  const p = lastKnownPosition;
+  const key = `${stop.stop_id}|${p.lat.toFixed(4)}|${p.lon.toFixed(4)}`;  // ~11 m grid
+  if (walkCache.key === key && (walkCache.ok || Date.now() - walkCache.at < 60000)) return;
+  const straight = haversineMeters(p.lat, p.lon, stop.stop_lat, stop.stop_lon);
+  let min = Math.max(1, Math.ceil(straight * 1.35 / 1000 / 5 * 60));
+  let ok = false;
+  try {
+    const r = await fetch(`https://routing.openstreetmap.de/routed-foot/route/v1/foot/${p.lon},${p.lat};${stop.stop_lon},${stop.stop_lat}?overview=false`);
+    const d = await r.json();
+    if (d.code === "Ok" && d.routes && d.routes[0]) {
+      min = Math.max(1, Math.ceil(d.routes[0].duration / 60));
+      ok = true;
+    }
+  } catch (e) { console.warn("walk route failed, using estimate:", e); }
+  walkCache = { key, min, ok, at: Date.now() };
+}
+
+// Minutes to walk from the user's last known position to the open stop.
+// Null when we don't know where the user is (or refreshWalkMinutes hasn't run yet).
 function walkMinutesToStop(stop) {
-  if (!lastKnownPosition || !stop) return null;
-  const meters = haversineMeters(lastKnownPosition.lat, lastKnownPosition.lon, stop.stop_lat, stop.stop_lon);
-  return Math.max(1, Math.round(meters / 1000 / 5 * 60));
+  if (!stop || !walkCache.key || !walkCache.key.startsWith(stop.stop_id + "|")) return null;
+  return walkCache.min;
 }
 
 function renderArrival(a) {
@@ -770,6 +794,8 @@ async function loadArrivals(stopId) {
   const data = await apiFetch(`${API}/stop/${stopId}/next?limit=50`);
   if (!data) return;                                           // offline, banner already shown
   if (!currentStop || currentStop.stop_id !== stopId) return;  // user switched stops
+  await refreshWalkMinutes(currentStop);
+  if (!currentStop || currentStop.stop_id !== stopId) return;  // switched while routing
   const box = document.getElementById("arrivals");
   if (!box) return;                                            // panel gone
   if (!data.arrivals.length) {
