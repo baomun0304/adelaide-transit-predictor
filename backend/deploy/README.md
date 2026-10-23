@@ -29,3 +29,17 @@ raw rows, so do not schedule it either.
 `python -m app.add_indexes` (run from `backend/`) builds two covering indexes on
 `realtime_updates`. It holds the write lock for minutes, so it only runs in the
 collector's quiet hours (01:00-05:00). It is not in `init_db()` on purpose.
+
+## OS changes made on 2026-10-24 (after the 23 Oct hang)
+
+The 23 Oct 22:18 hang started one minute after `dnf makecache --timer` ran: committed memory jumped by about 2 GB outside the transit services (their cgroups are capped), swap thrashed and the disk hit 98% busy. Fixes, run once on the VM:
+
+```bash
+sudo systemctl disable --now dnf-makecache.timer && sudo systemctl mask dnf-makecache.timer
+sudo systemctl disable --now pmcd pmlogger pmie   # PCP monitoring, sysstat already covers this
+sudo sed -i "s/ crashkernel=[^ \"]*//" /etc/default/grub /etc/kernel/cmdline
+sudo grubby --update-kernel=ALL --remove-args=crashkernel && sudo systemctl disable kdump
+sudo reboot
+```
+
+The crashkernel line reserved 448 MB for kdump on one boot, leaving the VM with 498 MB. Check after any kernel update: `free -m` should show about 945 MB total. Run `sudo dnf upgrade` by hand when needed, ideally with the collector stopped.
