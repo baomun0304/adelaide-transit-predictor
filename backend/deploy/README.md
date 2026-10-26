@@ -43,3 +43,14 @@ sudo reboot
 ```
 
 The crashkernel line reserved 448 MB for kdump on one boot, leaving the VM with 498 MB. Check after any kernel update: `free -m` should show about 945 MB total. Run `sudo dnf upgrade` by hand when needed, ideally with the collector stopped.
+
+## Timetable refresh (added 2026-10-26)
+
+The static timetable was loaded once and its calendar ran out on 11 Oct 2026, so stops showed "No more buses scheduled here today". `transit-gtfs-static.timer` now reloads it every Monday at 03:40 (about 15 s, memory capped, restarts the API afterwards). Install:
+
+```bash
+sudo cp systemd/transit-gtfs-static.{service,timer} /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now transit-gtfs-static.timer
+```
+
+Check what's loaded: `SELECT min(start_date), max(end_date) FROM calendar;` should include today.

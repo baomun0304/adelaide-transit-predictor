@@ -1,0 +1,16 @@
+[Unit]
+Description=Reload the Adelaide Metro static timetable (GTFS) into SQLite
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=opc
+WorkingDirectory=/opt/adelaide-transit/backend
+ExecStart=/opt/adelaide-transit/backend/.venv/bin/python -m app.gtfs_static
+# the API keeps small in-process caches, a restart makes it pick up the new timetable straight away
+ExecStartPost=+/usr/bin/systemctl restart transit-api
+Nice=10
+IOWeight=50
+MemoryHigh=300M
+MemoryMax=400M

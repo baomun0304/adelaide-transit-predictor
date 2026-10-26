@@ -1,0 +1,9 @@
+[Unit]
+Description=Weekly static timetable refresh (Adelaide Metro publishes new GTFS files without notice)
+
+[Timer]
+OnCalendar=Mon *-*-* 03:40
+Persistent=true
+
+[Install]
+WantedBy=timers.target
