@@ -4,6 +4,16 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>Adelaide Transit Predictor</title>
+<meta name="description" content="Know when to actually leave home for your Adelaide bus. Live GPS where buses have it, plus how early or late each route really runs at that hour." />
+<meta property="og:type" content="website" />
+<meta property="og:title" content="Adelaide Transit Predictor" />
+<meta property="og:description" content="Know when to actually leave home for your Adelaide bus, based on live GPS and how each route really runs." />
+<meta property="og:url" content="https://adelaide-transit-predictor.vercel.app/" />
+<meta property="og:image" content="https://adelaide-transit-predictor.vercel.app/icon-512.png" />
+<meta name="theme-color" content="#fbfaf8" media="(prefers-color-scheme: light)" />
+<meta name="theme-color" content="#14171b" media="(prefers-color-scheme: dark)" />
+<link rel="manifest" href="manifest.webmanifest" />
+<link rel="apple-touch-icon" href="apple-touch-icon.png" />
 <!-- Vercel Web Analytics (counts visitors/page views; needs Analytics enabled in the Vercel dashboard) -->
 <script>
   window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
@@ -12,17 +22,17 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H" crossorigin="anonymous" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" integrity="sha384-pmjIAcz2bAn0xukfxADbZIb3t8oRT9Sv0rvO+BR5Csr6Dhqq+nZs59P0pPKQJkEV" crossorigin="anonymous" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230f766e'/%3E%3Cpath d='M10 9h12a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2zm0 3v4h12v-4z' fill='%23fff'/%3E%3Ccircle cx='11.5' cy='19' r='1.3' fill='%230f766e'/%3E%3Ccircle cx='20.5' cy='19' r='1.3' fill='%230f766e'/%3E%3Cpath d='M10 22h3v2h-3zM19 22h3v2h-3z' fill='%23fff'/%3E%3C/svg%3E">
 <style>
   :root {
     --bg:#f4f3ef; --panel:#fbfaf8; --card:#ffffff; --card2:#efede8;
-    --line:#e2dfd8; --text:#15171b; --muted:#5d6169; --dim:#8a8e96;
+    --line:#e2dfd8; --text:#15171b; --muted:#5d6169; --dim:#63676f;
     --accent:#0f766e; --accent-ink:#ffffff; --accent2:#0b5e57; --accent-soft:#e3f1ee;
     --info:#0f766e; --good:#15803d; --warn:#b45309; --bad:#c2410c;
     --me:#2563eb;
-    --board:#17191e; --board-ink:#ffb547; --board-dim:#9aa0a8;
+    --board:#17191e; --board-ink:#ffb547; --board-dim:#a9afb7;
     --shadow-sm: 0 1px 2px rgba(21,23,27,0.06);
     --shadow-md: 0 1px 2px rgba(21,23,27,0.05), 0 12px 32px -12px rgba(21,23,27,0.22);
     --radius:16px; --radius-sm:10px;
@@ -32,7 +42,7 @@
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
       --bg:#0e1013; --panel:#14171b; --card:#1a1e23; --card2:#22272e;
-      --line:#2a3038; --text:#eef0f2; --muted:#a1a7b0; --dim:#6e7580;
+      --line:#2a3038; --text:#eef0f2; --muted:#a1a7b0; --dim:#8d949e;
       --accent:#2dd4bf; --accent-ink:#04221f; --accent2:#5eead4; --accent-soft:#11302c;
       --info:#2dd4bf; --good:#4ade80; --warn:#fbbf24; --bad:#fb923c;
       --me:#60a5fa; --board:#0a0b0d;
@@ -43,7 +53,7 @@
   }
   :root[data-theme="dark"] {
     --bg:#0e1013; --panel:#14171b; --card:#1a1e23; --card2:#22272e;
-    --line:#2a3038; --text:#eef0f2; --muted:#a1a7b0; --dim:#6e7580;
+    --line:#2a3038; --text:#eef0f2; --muted:#a1a7b0; --dim:#8d949e;
     --accent:#2dd4bf; --accent-ink:#04221f; --accent2:#5eead4; --accent-soft:#11302c;
     --info:#2dd4bf; --good:#4ade80; --warn:#fbbf24; --bad:#fb923c;
     --me:#60a5fa; --board:#0a0b0d;
@@ -55,10 +65,12 @@
   html, body { height:100%; }
   body { margin:0; font-family: 'Instrument Sans', system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
          background: var(--bg); color: var(--text); font-size:15px; line-height:1.5;
-         -webkit-font-smoothing: antialiased; }
+         -webkit-font-smoothing: antialiased; overflow-x:hidden; }
   button { font: inherit; color: inherit; }
   :focus-visible { outline: 3px solid color-mix(in srgb, var(--accent) 55%, transparent); outline-offset: 2px; }
   svg.i { width:18px; height:18px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; flex:none; }
+  .sr-only { position:absolute !important; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden;
+             clip:rect(0,0,0,0); white-space:nowrap; border:0; }
 
   /* ---------- top bar ---------- */
   header { height:64px; padding:0 16px; background:var(--panel); display:flex; gap:12px; align-items:center;
@@ -70,7 +82,7 @@
   header h1 { margin:0; font-size:17px; font-weight:700; letter-spacing:-0.015em; line-height:1.1; }
   header h1 small { display:block; font-size:12px; font-weight:500; color:var(--muted); letter-spacing:0; }
 
-  .search-wrap { position:relative; flex:1; min-width:120px; max-width:560px; margin-left:12px; }
+  .search-wrap { position:relative; flex:1; min-width:0; max-width:560px; margin-left:12px; }
   .search-wrap > svg.i { position:absolute; left:14px; top:50%; transform:translateY(-50%); color:var(--dim); pointer-events:none; }
   header input {
     width:100%; height:44px; padding:0 16px 0 42px; border-radius:12px; border:1px solid var(--line);
@@ -95,28 +107,34 @@
     background:var(--card); border:1px solid var(--line); border-radius:14px;
     box-shadow:var(--shadow-md); max-height:360px; overflow-y:auto; z-index:1000; padding:6px;
   }
-  .sugg-group-label { padding:8px 10px 4px; font-size:11px; font-weight:600; color:var(--dim); }
-  .sugg-item { display:flex; align-items:center; gap:12px; padding:10px; cursor:pointer; font-size:14px; border-radius:10px; }
-  .sugg-item:hover, .sugg-item.active { background:var(--card2); }
+  .sugg-item { display:flex; width:100%; align-items:center; gap:12px; padding:10px; cursor:pointer; font-size:14px;
+               border-radius:10px; border:0; background:transparent; text-align:left; }
+  .sugg-item:hover, .sugg-item:focus-visible { background:var(--card2); }
   .sugg-icon { flex:none; width:30px; height:30px; border-radius:9px; display:grid; place-items:center; }
   .sugg-icon.stop { background:var(--accent-soft); }
   .sugg-icon svg { width:16px; height:16px; fill:var(--accent); }
   .sugg-text { min-width:0; }
-  .sugg-title { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .sugg-sub { font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .sugg-title { display:block; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .sugg-sub { display:block; font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .sugg-empty { padding:16px; font-size:14px; color:var(--muted); text-align:center; }
 
   /* ---------- layout ---------- */
   main { display:flex; height: calc(100vh - 64px); height: calc(100dvh - 64px); }
   .map-wrap { flex:1; position:relative; min-width:0; }
   #map { width:100%; height:100%; }
-  aside { width: 420px; flex:none; padding:20px 20px 32px; overflow-y:auto; background:var(--panel);
+  aside { width: 420px; flex:none; padding:20px 20px 32px; overflow-y:auto; overflow-x:hidden; background:var(--panel);
           border-left:1px solid var(--line); }
   aside::-webkit-scrollbar { width:10px; }
   aside::-webkit-scrollbar-thumb { background:var(--line); border-radius:10px; border:3px solid var(--panel); }
+  .sheet-toggle { display:none; }
+  /* With a stop open, its arrivals come first and favourites drop below them */
+  aside { display:flex; flex-direction:column; }
+  aside > * { flex:none; }
+  body.stop-open #fav-section { order:2; }
+  body.stop-open .about { order:3; }
 
   .section { margin-bottom: 26px; }
-  .section h3 { margin: 0 0 10px; font-size: 13px; color: var(--muted); font-weight:600; letter-spacing:0; }
+  .section > h2, .section > h3 { margin: 0 0 10px; font-size: 13px; color: var(--muted); font-weight:600; letter-spacing:0; }
   .muted { color:var(--muted); font-size:14px; }
 
   .empty-hint { display:flex; gap:12px; align-items:flex-start; padding:16px; border:1px dashed var(--line);
@@ -124,27 +142,58 @@
   .empty-hint svg.i { margin-top:2px; color:var(--accent); }
 
   /* stop header */
-  .stop-header { margin-bottom:22px; }
+  .stop-header { margin-bottom:18px; }
   .stop-kicker { font-family:var(--mono); font-size:12px; color:var(--dim); letter-spacing:.02em; }
-  .stop-name { font-weight:700; font-size: 22px; line-height:1.2; letter-spacing:-0.02em;
-               display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-top:4px; }
+  .stop-name { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-top:4px; }
+  .stop-name h2 { margin:0; font-weight:700; font-size: 22px; line-height:1.2; letter-spacing:-0.02em; min-width:0; overflow-wrap:anywhere; }
   .star { flex:none; width:44px; height:44px; margin:-6px -6px 0 0; border:0; border-radius:12px; background:transparent;
           cursor:pointer; color:var(--dim); font-size:24px; line-height:1; display:grid; place-items:center;
           transition: color .15s, background .15s, transform .15s; }
   .star:hover { background:var(--card2); }
   .star.on { color:#f2a516; }
   .star:active { transform: scale(.9); }
-  .stop-meta { font-size:13px; color:var(--muted); margin-top:4px; }
+
+  /* "use my location" prompt and hero line */
+  .loc-cta { display:flex; align-items:center; justify-content:space-between; gap:8px 12px; flex-wrap:wrap;
+             padding:8px 8px 8px 14px; margin-bottom:14px; border-radius:var(--radius-sm);
+             background:var(--accent-soft); font-size:14px; }
+  .loc-cta[hidden] { display:none; }
+  .loc-cta .hdr-btn { height:38px; font-size:14px; border-color:var(--accent); color:var(--accent); background:var(--card); }
+  .hero { margin:0 0 14px; padding:12px 14px; border-radius:var(--radius-sm); background:var(--board); color:#f3f4f6;
+          font-size:15px; line-height:1.35; }
+  .hero:empty { display:none; }
+  .hero .hero-kicker { display:block; font-size:12px; font-weight:600; color:var(--board-dim);
+                       text-transform:uppercase; letter-spacing:0.1em; margin-bottom:2px; }
+  .hero strong { color:var(--board-ink); font-family:var(--mono); font-weight:600; }
+
+  /* route filter chips */
+  .chips { display:flex; flex-wrap:wrap; gap:6px; margin:0 0 14px; }
+  .chips:empty { display:none; }
+  .chip { min-height:36px; padding:0 14px; border-radius:999px; border:1px solid var(--line); background:var(--card);
+          font-family:var(--mono); font-weight:600; font-size:14px; cursor:pointer;
+          transition: border-color .15s, background .15s, color .15s; }
+  .chip:hover { border-color:var(--accent); }
+  .chip[aria-pressed="true"] { background:var(--text); color:var(--bg); border-color:var(--text); }
+
+  .arrivals-status { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;
+                     padding:10px 12px; margin-bottom:12px; border-radius:var(--radius-sm);
+                     border:1px solid color-mix(in srgb, var(--bad) 45%, var(--line));
+                     background:color-mix(in srgb, var(--bad) 8%, var(--card)); font-size:14px; }
+  .arrivals-status[hidden] { display:none; }
+  .retry-btn { min-height:36px; padding:0 14px; border-radius:999px; border:1px solid var(--line); background:var(--card);
+               font-weight:600; font-size:14px; cursor:pointer; }
+  .retry-btn:hover { border-color:var(--accent); color:var(--accent); }
 
   /* favourites as chips */
   #favs:not(.muted) { display:flex; flex-wrap:wrap; gap:8px; }
-  .fav-item { display:inline-flex; align-items:center; gap:4px; max-width:100%; min-height:40px;
-              padding:0 4px 0 14px; border-radius:999px; cursor:pointer;
+  .fav-item { display:inline-flex; align-items:center; gap:2px; max-width:100%; min-height:40px;
+              padding:0 4px 0 0; border-radius:999px;
               background:var(--card); border:1px solid var(--line); transition: border-color .15s, background .15s; }
   .fav-item:hover { border-color: var(--accent); }
-  .fav-item .fav-name { font-size:14px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .fav-item .rm { width:32px; height:32px; border-radius:50%; display:grid; place-items:center;
-                  color:var(--dim); font-size:18px; line-height:1; flex:none; }
+  .fav-open { border:0; background:transparent; cursor:pointer; padding:8px 4px 8px 14px; min-width:0;
+              font-size:14px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; border-radius:999px; }
+  .fav-item .rm { width:32px; height:32px; border:0; background:transparent; cursor:pointer; border-radius:50%;
+                  display:grid; place-items:center; color:var(--dim); font-size:18px; line-height:1; flex:none; }
   .fav-item .rm:hover { color: var(--bad); background:var(--card2); }
 
   /* ---------- arrival cards ---------- */
@@ -156,14 +205,15 @@
     transition: border-color .15s, box-shadow .2s, transform .2s;
   }
   .arrival:hover { box-shadow: var(--shadow-md); border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); }
+  .arrival.mine { border-color: color-mix(in srgb, var(--accent) 60%, var(--line)); }
   .a-top { display:grid; grid-template-columns: auto 1fr auto; gap:12px; align-items:center; }
   .a-route {
     background: var(--text); color:var(--bg); font-weight:700; font-family:var(--mono);
-    padding: 6px 0; border-radius: 9px; font-size:15px; min-width: 52px; text-align:center;
+    padding: 6px 6px; border-radius: 9px; font-size:15px; min-width: 52px; text-align:center;
     letter-spacing:-0.02em;
   }
   .a-main { min-width:0; }
-  .a-headsign { font-weight:600; font-size:15px; line-height:1.25;
+  .a-headsign { margin:0; font-weight:600; font-size:15px; line-height:1.25;
                 white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .a-when { text-align:right; line-height:1.15; }
   .a-count { display:block; font-family:var(--mono); font-variant-numeric: tabular-nums; font-weight:600;
@@ -171,7 +221,7 @@
   .a-time { display:block; font-family:var(--mono); font-size:12px; color:var(--muted); margin-top:2px; white-space:nowrap; }
 
   .a-status { display:flex; align-items:center; gap:6px; font-size:13px; margin-top:3px; flex-wrap:wrap; }
-  .a-status .muted { font-size:12px !important; }
+  .a-status .src { font-size:12px; color:var(--muted); }
   .live-dot { position:relative; width:8px; height:8px; border-radius:50%; background:var(--good); flex:none; }
   .live-dot::after { content:""; position:absolute; inset:-4px; border-radius:50%; border:2px solid var(--good);
                      opacity:0; animation: ping 2s ease-out infinite; }
@@ -183,37 +233,48 @@
                border-top:1px dashed var(--line); }
 
   /* leave-by: a small departure board */
-  .a-leave { margin-top:12px; display:grid; grid-template-columns:auto 1fr; gap:4px 14px; align-items:center; }
-  .board { grid-row: span 2; background:var(--board); color:var(--board-ink); border-radius:12px;
-           padding:8px 12px 9px; min-width:96px; text-align:center;
+  .a-leave { margin-top:12px; display:grid; grid-template-columns:auto minmax(0,1fr); gap:6px 14px; align-items:center; }
+  .board { background:var(--board); color:var(--board-ink); border-radius:12px;
+           padding:8px 12px 9px; min-width:108px; max-width:150px; text-align:center;
            box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06); }
-  .a-leave .label { display:block; font-size:10px; font-weight:600; color:var(--board-dim);
-                    text-transform:uppercase; letter-spacing:0.12em; }
+  .a-leave .label { display:block; font-size:12px; font-weight:600; color:var(--board-dim);
+                    text-transform:uppercase; letter-spacing:0.08em; line-height:1.25; }
   .a-leave .time { display:block; font-family:var(--mono); font-size:24px; font-weight:600; letter-spacing:-0.02em;
                    font-variant-numeric: tabular-nums; line-height:1.1; margin-top:2px;
                    text-shadow: 0 0 12px rgba(255,181,71,0.35); }
+  .board.now .label { color:var(--board-ink); }
+  .board.now { box-shadow: inset 0 0 0 2px var(--board-ink); }
+  .board.late .label { color:#fb923c; }
   .leave-info { min-width:0; }
-  .a-leave .reason { font-size:12px; color:var(--muted); line-height:1.4; }
-  .a-leave .reason + .reason { margin-top:2px; color:var(--text); font-weight:500; }
-  .remind-btn { grid-column: 2; justify-self:start; display:inline-flex; align-items:center; gap:6px;
-                min-height:36px; margin-top:4px; padding:0 14px 0 12px; font-size:13px; font-weight:600;
+  .a-leave .reason { font-size:13px; color:var(--muted); line-height:1.4; }
+  .a-leave .reason.state-note { color:var(--text); font-weight:500; }
+  .a-leave .reason.state-note:empty { display:none; }
+  .leave-actions { grid-column: 1 / -1; display:flex; flex-wrap:wrap; gap:6px; }
+  .remind-btn, .mine-btn { display:inline-flex; align-items:center; gap:6px;
+                min-height:36px; padding:0 14px 0 12px; font-size:13px; font-weight:600;
                 cursor:pointer; border-radius:999px; border:1px solid var(--line);
                 background:var(--card); color:var(--text); transition: background .15s, color .15s, border-color .15s; }
   .remind-btn::before { content:""; width:15px; height:15px; background:currentColor;
     -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9'/%3E%3Cpath d='M10.3 21a1.94 1.94 0 0 0 3.4 0'/%3E%3C/svg%3E") center/contain no-repeat;
             mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9'/%3E%3Cpath d='M10.3 21a1.94 1.94 0 0 0 3.4 0'/%3E%3C/svg%3E") center/contain no-repeat; }
-  .remind-btn:hover { border-color: var(--accent); color: var(--accent); }
-  .remind-btn.on { background: var(--accent); color:var(--accent-ink); border-color: var(--accent); }
+  .remind-btn:hover, .mine-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .remind-btn.on, .mine-btn[aria-pressed="true"] { background: var(--accent); color:var(--accent-ink); border-color: var(--accent); }
+  .a-then { margin-top:10px; font-size:13px; color:var(--muted); }
+  .a-then b { font-family:var(--mono); font-weight:600; color:var(--text); }
 
-  .delay-on   { color:var(--good); font-weight:600; }
-  .delay-late { color:var(--warn); font-weight:600; }
-  .delay-bad  { color:var(--bad);  font-weight:600; }
+  .delay-on    { color:var(--good); font-weight:600; }
+  .delay-early { color:var(--warn); font-weight:600; }
+  .delay-late  { color:var(--warn); font-weight:600; }
+  .delay-bad   { color:var(--bad);  font-weight:600; }
 
   /* chart */
   .chart-card { background:var(--card); border:1px solid var(--line); border-radius:var(--radius); padding:14px 12px 8px; }
-  canvas { display:block; }
+  .chart-card[hidden] { display:none; }
+  canvas { display:block; max-width:100%; }
   #reliability-note { font-size:13px; margin-top:10px; }
-  .legend { font-size:12px; color:var(--dim); margin-top:8px; }
+
+  .about { font-size:13px; color:var(--muted); border-top:1px solid var(--line); padding-top:14px; }
+  .about a { color:var(--accent); }
 
   .offline-banner {
     position:fixed; z-index:1200; left:50%; top:76px; transform:translateX(-50%);
@@ -238,7 +299,7 @@
   .leaflet-control-zoom a:hover { background: var(--card2) !important; color: var(--accent) !important; }
   .leaflet-control-attribution {
     background: color-mix(in srgb, var(--panel) 85%, transparent) !important; color: var(--muted) !important;
-    border-radius: 6px 0 0 0; padding: 2px 8px; font-size: 10px;
+    border-radius: 6px 0 0 0; padding: 2px 8px; font-size: 12px;
   }
   .leaflet-control-attribution a { color: var(--muted) !important; }
 
@@ -294,19 +355,31 @@
   /* ---------- phones: map on top, panel as a sheet ---------- */
   @media (max-width: 768px) {
     header { height:60px; padding:0 12px; gap:8px; }
-    header h1 small, .brand h1 { display:none; }
+    header h1 { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
     .search-wrap { margin-left:0; }
     .hdr-btn .lbl { display:none; }
     #locate { margin-left:0; padding:0; }
     main { flex-direction: column; height: calc(100dvh - 60px); }
-    .map-wrap { flex: 1; min-height: 200px; }
-    aside { width: 100%; max-height: 56vh; border-left: none; border-top: 1px solid var(--line);
+    .map-wrap { flex: 1; min-height: 120px; }
+    aside { width: 100%; max-height: 45dvh; border-left: none; border-top: 1px solid var(--line);
             border-radius: 20px 20px 0 0; margin-top:-16px; position:relative; z-index:600;
-            padding: 22px 16px calc(24px + env(safe-area-inset-bottom)); box-shadow: 0 -10px 30px -12px rgba(0,0,0,.25); }
-    aside::before { content:""; position:absolute; top:8px; left:50%; width:40px; height:4px; margin-left:-20px;
-                    border-radius:4px; background:var(--line); }
+            padding: 0 16px calc(24px + env(safe-area-inset-bottom)); box-shadow: 0 -10px 30px -12px rgba(0,0,0,.25);
+            transition: height .25s ease, max-height .25s ease; }
+    /* A stop is open: give the sheet most of the screen but keep a strip of map visible above it */
+    body.stop-open aside { height: 70dvh; max-height: 70dvh; }
+    body.sheet-collapsed aside { height: 112px; max-height: 112px; overflow:hidden; }
+    .sheet-toggle { display:flex; position:sticky; top:0; z-index:5; width:calc(100% + 32px); height:30px;
+                    margin:0 -16px 8px; padding:0; border:0; background:var(--panel); cursor:grab;
+                    justify-content:center; align-items:center; touch-action:none; border-radius:20px 20px 0 0; }
+    .sheet-toggle span { width:44px; height:5px; border-radius:5px; background:var(--dim); opacity:.6; }
     .map-status { top: 10px; font-size: 12px; padding: 6px 12px; }
     .offline-banner { top:70px; }
+    .board { min-width:100px; }
+    /* one swipeable row of route chips instead of several wrapped rows */
+    .chips { flex-wrap:nowrap; overflow-x:auto; margin-right:-16px; padding-right:16px; scrollbar-width:none; }
+    .chip { flex:none; }
+    .loc-cta { font-size:13px; }
+    .stop-header { margin-bottom:12px; }
   }
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation: none !important; transition: none !important; }
@@ -317,51 +390,87 @@
 <header>
   <div class="brand">
     <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 16c0 .88.39 1.67 1 2.22V20c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h8v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1.78c.61-.55 1-1.34 1-2.22V6c0-3.5-3.58-4-8-4s-8 .5-8 4v10zm3.5 1c-.83 0-1.5-.67-1.5-1.5S6.67 14 7.5 14s1.5.67 1.5 1.5S8.33 17 7.5 17zm9 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zM18 11H6V6h12v5z"/></svg></span>
-    <h1>Adelaide Transit<small>Live arrivals and how late buses really run</small></h1>
+    <h1>Adelaide Transit<small>When to leave for your bus</small></h1>
   </div>
   <div class="search-wrap">
     <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-    <input id="search" placeholder="Search stop name..." autocomplete="off" aria-label="Search stop name" />
+    <input id="search" placeholder="Search stop name..." autocomplete="off" aria-label="Search stop name"
+           aria-controls="search-suggestions" aria-expanded="false" />
     <div id="search-suggestions" hidden></div>
   </div>
-  <button id="locate" class="hdr-btn" aria-label="My location"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="7"/></svg><span class="lbl">My location</span></button>
+  <button id="locate" class="hdr-btn" aria-label="Use my location"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="7"/></svg><span class="lbl">Use my location</span></button>
   <button id="theme-toggle" class="hdr-btn" title="Toggle light/dark" aria-label="Toggle light/dark theme"></button>
 </header>
 <div class="offline-banner" id="offline-banner" role="status" hidden>
-  Can't reach the server, retrying every 25s
+  Can't reach the server, retrying every 30 s
 </div>
 <main>
   <div class="map-wrap">
     <div id="map"></div>
-    <div class="map-status" id="status"><span class="count">0</span> stops visible · click any to see arrivals</div>
+    <div class="map-status" id="status"><span class="count">0</span> stops visible · tap any to see arrivals</div>
   </div>
-  <aside id="panel">
+  <aside id="panel" aria-label="Stops and arrivals">
+    <button type="button" class="sheet-toggle" id="sheet-toggle" aria-controls="panel" aria-expanded="true" aria-label="Collapse panel"><span></span></button>
     <div class="section" id="fav-section">
-      <h3>Favourite stops</h3>
-      <div id="favs" class="muted">No favorites yet. Star a stop to add it.</div>
+      <h2>Favourite stops</h2>
+      <div id="favs" class="muted">No favourites yet. Star a stop to add it.</div>
     </div>
     <div class="section" id="stop-section">
-      <h3>Stop details</h3>
+      <h2>Stop details</h2>
       <div class="empty-hint"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg><span>Pick a stop on the map, or search above, to see live arrivals.</span></div>
     </div>
+    <footer class="about">
+      <h2 class="sr-only">About</h2>
+      Walk times come from <a href="https://routing.openstreetmap.de/" target="_blank" rel="noopener">routing.openstreetmap.de</a>.
+      Your position is only used after you tap "Use my location", and it is then sent there to work out the walking route.
+      Location, favourites and reminders stay in this browser.
+    </footer>
   </aside>
 </main>
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js" integrity="sha384-eXVCORTRlv4FUUgS/xmOyr66XBVraen8ATNLMESp92FKXLAMiKkerixTiBvXriZr" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js" integrity="sha384-NrKB+u6Ts6AtkIhwPixiKTzgSKNblyhlk0Sohlgar9UHUBzai/sgnNNWWd291xqt" crossorigin="anonymous"></script>
 <script>
-// API URL: defaults to current tunnel, can be overridden at runtime via:
-//   localStorage.setItem("apiUrl", "https://150-230-11-143.sslip.io")
-// or via URL param: ?api=https://150-230-11-143.sslip.io
 Chart.defaults.font.family = "'Instrument Sans', system-ui, sans-serif";
+Chart.defaults.font.size = 12;
+
 const DEFAULT_API = "https://150-230-11-143.sslip.io";
-// Permanent backend is the default. ?api=... still allows a one-off override for testing.
-// Clear any stale saved tunnel URL from the old setup so it can't override the default.
-localStorage.removeItem("apiUrl");
-const urlParam = new URLSearchParams(location.search).get("api");
-const API = urlParam || DEFAULT_API;
-console.log("API:", API);
+const SAFETY_SEC = 120;              // always be at the stop 2 min before the bus
+const NO_HISTORY_EXTRA_SEC = 60;     // with SAFETY_SEC this is the 3 min buffer used when a route has no history
+const LEAVE_NOW_WINDOW_SEC = 60;
+const FETCH_TIMEOUT_MS = 8000;
+const ARRIVALS_REFRESH_MS = 30000;
+const OFFLINE_RETRY_MS = 30000;
+const MIN_CHART_SAMPLES = 20;
+const STOPS_RADIUS_KM = 1.5;
+const STOPS_CACHE_MAX = 40;
+
+// Escape anything from the API or localStorage before it goes into innerHTML.
+function esc(v) {
+  return String(v ?? "").replace(/[&<>"']/g, c =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+// ?api= is for testing only. Accept the default host or an https localhost server and
+// nothing else, so a crafted link can't point the app at someone else's server.
+function pickApi() {
+  const raw = new URLSearchParams(location.search).get("api");
+  if (!raw) return DEFAULT_API;
+  try {
+    const u = new URL(raw);
+    const isLocal = u.hostname === "localhost" || u.hostname === "127.0.0.1";
+    if (u.origin === DEFAULT_API || (u.protocol === "https:" && isLocal)) return u.origin;
+  } catch {}
+  return DEFAULT_API;
+}
+const API = pickApi();
+// Old builds saved a tunnel URL here; clear it so it can't linger.
+try { localStorage.removeItem("apiUrl"); } catch {}
+
+const nowSec = () => Math.floor(Date.now() / 1000);
+const timeoutSignal = () => (AbortSignal.timeout ? AbortSignal.timeout(FETCH_TIMEOUT_MS) : undefined);
+
 const map = L.map("map", { zoomControl: true, attributionControl: true })
   .setView([-34.9285, 138.6007], 14);
 
@@ -369,8 +478,7 @@ const map = L.map("map", { zoomControl: true, attributionControl: true })
 // OSM tiles (no shop/POI icons competing with our own stop markers). Base
 // layer carries the shapes, Reference layer carries just the road/place
 // labels on top. Swaps light/dark to match the app's theme. Capped at Esri's
-// native zoom 16 for this style; CSS below rescales it for the couple of
-// zoom levels our app goes past that.
+// native zoom 16 for this style; Leaflet rescales it past that.
 const TILE_BASE_LIGHT = "https://services.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}";
 const TILE_REF_LIGHT  = "https://services.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}";
 const TILE_BASE_DARK  = "https://services.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}";
@@ -380,22 +488,27 @@ const baseTiles = L.tileLayer(TILE_BASE_LIGHT, {
   maxZoom: 19, maxNativeZoom: 16, attribution: TILE_ATTRIBUTION,
 }).addTo(map);
 const refTiles = L.tileLayer(TILE_REF_LIGHT, {
-  maxZoom: 19, maxNativeZoom: 16,
+  maxZoom: 16, // the label tiles stop at zoom 16; stretching them makes street names huge and blurry
 }).addTo(map);
 
 const stopLayer = L.markerClusterGroup({
   maxClusterRadius: 45,
   showCoverageOnHover: false,
   spiderfyOnMaxZoom: true,
-  disableClusteringAtZoom: 17,
+  disableClusteringAtZoom: 16,
 });
 map.addLayer(stopLayer);
 
 let currentStop = null;
 let currentMarker = null;
 let reliabilityChart = null;
+let lastArrivals = null;     // { stopId, data, at } - last good response, kept on screen if a refresh fails
+let routeFilter = null;      // route chip picked in the stop panel, null = all
+let renderedGroups = [];     // cards on screen, so the 1 s ticker can update their boards
+let heroTrips = [];
+let tripByKey = new Map();
 
-// -------- Networking helper: centralizes offline detection --------
+// -------- Networking helper: centralises offline detection --------
 let isOffline = false;
 function setOffline(v) {
   if (v === isOffline) return;
@@ -406,10 +519,11 @@ function setOffline(v) {
 
 async function apiFetch(url) {
   try {
-    const r = await fetch(url);
+    const r = await fetch(url, { signal: timeoutSignal() });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const json = await r.json();
     setOffline(false);
-    return await r.json();
+    return json;
   } catch (err) {
     console.warn("API fetch failed:", url, err);
     setOffline(true);
@@ -417,23 +531,136 @@ async function apiFetch(url) {
   }
 }
 
-// ---- Live countdown + departure reminders ----
+// -------- Formatting --------
+function fmtTime(ts) {
+  if (!ts) return "";
+  return new Date(ts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+function countdownText(predTs) {
+  const secs = predTs - nowSec();
+  if (secs <= 0) return "due";
+  if (secs < 60) return `${secs}s`;
+  const m = Math.floor(secs / 60);
+  if (m < 60) return `${m} min`;
+  return `${Math.floor(m / 60)}h ${m % 60}m`;
+}
+function delayClass(sec) {
+  if (sec == null) return "";
+  if (sec < -60) return "delay-early";   // early means you can miss it, so it's a warning
+  if (sec <= 60) return "delay-on";
+  if (sec <= 300) return "delay-late";
+  return "delay-bad";
+}
+function fmtOffset(sec) {
+  const m = Math.round(sec / 60);
+  if (m === 0) return "on time";
+  return m > 0 ? `${m} min late` : `${-m} min early`;
+}
+function fmtDelay(sec) {
+  return sec == null ? "no realtime data" : fmtOffset(sec);
+}
+
+// The "how this route usually runs" line under each card.
+function patternText(t) {
+  if (!t) return "Not enough history yet for this route at this hour.";
+  const day = t.day_type === "weekend" ? "weekends" : "weekdays";
+  if (t.scope === "all-time-aggregated") {
+    return `From older history: on average ${fmtOffset(t.p50_sec)} (${t.samples} records).`;
+  }
+  const where = {
+    "exact": `at this hour on ${day}`,
+    "±1h": `around this hour on ${day}`,
+    "all-hours-day-type": `on ${day}, any hour`,
+    "all": "at any hour or day",
+  }[t.scope] || `on ${day}`;
+  const lo = fmtOffset(t.p25_sec), hi = fmtOffset(t.p75_sec);
+  const range = lo === hi ? `usually ${lo}` : `half of them run between ${lo} and ${hi}`;
+  return `Past buses ${where}: ${range} (${t.samples} records).`;
+}
+
+// -------- Leave-by maths --------
+// Extra buffer (seconds) for a bus that could turn up before its predicted time.
+// Live GPS: trust it. Otherwise use the early tail of history (p10, or p25 until
+// the server sends p10). No history: a flat 3 min including the safety margin.
+function earlyBuffer(a) {
+  if (a.has_gps === 1) return { sec: 0, reason: "Live GPS position, plus a 2 min safety margin." };
+  const t = a.typical;
+  if (!t) return { sec: NO_HISTORY_EXTRA_SEC, reason: "No history for this route yet, so a 3 min buffer." };
+  const hasP10 = t.p10_sec != null;
+  const low = hasP10 ? t.p10_sec : t.p25_sec;
+  const sec = Math.max(0, -low);
+  const share = hasP10 ? "9 in 10" : "3 in 4";
+  let reason;
+  if (t.scope === "all-time-aggregated") {
+    reason = sec > 0 ? `Older history only: on average these buses come ${fmtOffset(low)}` : "Older history only: on average these buses are not early";
+  } else if (sec > 0) {
+    reason = `${share} of these buses arrive no earlier than ${fmtTime(a.predicted_arrival - sec)}`;
+  } else {
+    reason = `${share} of these buses are on time or late`;
+  }
+  return { sec, reason: `${reason}, plus a 2 min safety margin.` };
+}
+
+function planTrip(a, stopId, walkMin) {
+  const early = earlyBuffer(a);
+  const atStop = a.predicted_arrival - early.sec - SAFETY_SEC;
+  const leave = walkMin != null ? atStop - walkMin * 60 : atStop;
+  return { a, key: `${a.trip_id}_${stopId}`, pred: a.predicted_arrival, atStop, leave, reason: early.reason };
+}
+
+function routeKey(a) { return a.route_short_name || a.route_id || "?"; }
+
+// One group per route + headsign, trips in arrival order (the API already sorts them).
+function groupTrips(trips) {
+  const groups = new Map();
+  for (const t of trips) {
+    const k = routeKey(t.a) + "|" + (t.a.trip_headsign || "");
+    if (!groups.has(k)) groups.set(k, { route: routeKey(t.a), headsign: t.a.trip_headsign || "", trips: [] });
+    groups.get(k).trips.push(t);
+  }
+  return [...groups.values()];
+}
+
+// What the departure board on a card says right now.
+function boardState(g, now, hasWalk) {
+  const p = g.primary;
+  const d = p.leave - now;
+  const note = hasWalk ? `Be at the stop by ${fmtTime(p.atStop)}.` : "";
+  if (d > LEAVE_NOW_WINDOW_SEC) {
+    return { cls: "", label: `${hasWalk ? "Leave" : "At stop"} in ${Math.ceil(d / 60)} min`, time: fmtTime(p.leave), note };
+  }
+  if (d >= 0) return { cls: "now", label: hasWalk ? "Leave now" : "Go to stop now", time: fmtTime(p.leave), note };
+  const next = g.trips.find(t => t.pred > p.pred && t.leave >= now);
+  if (!next) return { cls: "late", label: "Too late", time: "--:--", note: `Missed the ${fmtTime(p.pred)}. No later one in the list.` };
+  return {
+    cls: "late",
+    label: `Too late, next ${hasWalk ? "leave" : "at stop"} by`,
+    time: fmtTime(next.leave),
+    note: `Missed the ${fmtTime(p.pred)}. Next one at ${fmtTime(next.pred)}.`,
+  };
+}
+
+// ---- Departure reminders ----
 let reminders = [];
 try { reminders = JSON.parse(localStorage.getItem("reminders") || "[]"); } catch {}
+if (!Array.isArray(reminders)) reminders = [];
 // Drop anything already well in the past (stale from a previous visit).
-reminders = reminders.filter(r => r.arriveTs > Math.floor(Date.now()/1000) - 300);
+reminders = reminders.filter(r => r && r.arriveTs > nowSec() - 300);
 function saveReminders() {
   try { localStorage.setItem("reminders", JSON.stringify(reminders)); } catch {}
 }
 
-// Human countdown from a predicted-arrival epoch (seconds).
-function countdownText(predTs) {
-  const secs = predTs - Math.floor(Date.now()/1000);
-  if (secs <= 0) return "due";
-  if (secs < 60) return `${secs}s`;
-  const m = Math.floor(secs/60);
-  if (m < 60) return `${m} min`;
-  return `${Math.floor(m/60)}h ${m%60}m`;
+// Every refresh: move reminders for this stop to the latest leave time (bus delays, walk time).
+function syncReminders(trips) {
+  const byKey = new Map(trips.map(t => [t.key, t]));
+  let changed = false;
+  reminders = reminders.map(r => {
+    const t = byKey.get(r.key);
+    if (!t || r.fired || (r.leaveTs === t.leave && r.arriveTs === t.pred)) return r;
+    changed = true;
+    return { ...r, leaveTs: t.leave, arriveTs: t.pred };
+  });
+  if (changed) saveReminders();
 }
 
 async function ensureNotifyPermission() {
@@ -443,21 +670,21 @@ async function ensureNotifyPermission() {
   return (await Notification.requestPermission()) === "granted";
 }
 
-// Toggle a leave reminder for one arrival (button carries the data).
 async function toggleReminder(btn) {
   const key = btn.dataset.key;
-  const i = reminders.findIndex(r => r.key === key);
-  if (i >= 0) {
-    reminders.splice(i, 1); saveReminders();
+  if (reminders.some(r => r.key === key)) {
+    reminders = reminders.filter(r => r.key !== key); saveReminders();
     btn.classList.remove("on"); btn.textContent = "Remind me to leave";
     return;
   }
+  const t = tripByKey.get(key);
+  if (!t) return;
   const ok = await ensureNotifyPermission();
-  reminders.push({
-    key, leaveTs: Number(btn.dataset.leave), arriveTs: Number(btn.dataset.pred),
-    route: btn.dataset.route || "", headsign: btn.dataset.headsign || "",
+  reminders = [...reminders, {
+    key, leaveTs: t.leave, arriveTs: t.pred,
+    route: routeKey(t.a), headsign: t.a.trip_headsign || "",
     stop: currentStop ? currentStop.stop_name : "", notify: ok, fired: false,
-  });
+  }];
   saveReminders();
   btn.classList.add("on");
   btn.textContent = ok ? "Reminder set" : "Set (allow notifications for alerts)";
@@ -467,38 +694,70 @@ function markReminderButtons() {
   document.querySelectorAll(".remind-btn").forEach(btn => {
     const on = reminders.some(r => r.key === btn.dataset.key);
     btn.classList.toggle("on", on);
-    if (on) btn.textContent = "Reminder set";
+    btn.textContent = on ? "Reminder set" : "Remind me to leave";
   });
 }
 
 function fireReminder(r) {
   const title = `Time to leave, ${r.route}`;
-  const body = `${r.route}${r.headsign ? " to " + r.headsign : ""} arrives ~${fmtTime(r.arriveTs)}${r.stop ? " at " + r.stop : ""}. Leave now.`;
+  const body = `${r.route}${r.headsign ? " to " + r.headsign : ""} arrives about ${fmtTime(r.arriveTs)}${r.stop ? " at " + r.stop : ""}. Leave now.`;
   if (r.notify && "Notification" in window && Notification.permission === "granted") {
     try { new Notification(title, { body }); return; } catch {}
   }
   alert(title + "\n" + body);   // fallback when notifications are blocked
 }
 
-// One global 1-second ticker: refresh countdowns + fire due reminders.
-setInterval(() => {
-  const now = Math.floor(Date.now()/1000);
+// One global 1 second ticker: countdowns, board states, hero line, due reminders.
+function tick() {
+  const now = nowSec();
   document.querySelectorAll(".a-count").forEach(el => {
     el.textContent = countdownText(Number(el.dataset.pred));
   });
-  let changed = false;
+  const hasWalk = walkMinutesToStop(currentStop) != null;
+  let stale = false;
+  for (const g of renderedGroups) {
+    if (!g.el) continue;
+    if (g.primary.pred <= now) { stale = true; continue; }   // bus has gone, move the card on
+    const s = boardState(g, now, hasWalk);
+    const board = g.el.querySelector(".board");
+    board.className = "board " + s.cls;
+    board.querySelector(".label").textContent = s.label;
+    board.querySelector(".time").textContent = s.time;
+    g.el.querySelector(".state-note").textContent = s.note;
+  }
+  updateHero(now, hasWalk);
+
+  let fired = false;
   reminders.forEach(r => {
     if (r.fired || now < r.leaveTs) return;
     if (now <= r.leaveTs + 900) fireReminder(r);   // only alert within 15 min of leave time
-    r.fired = true; changed = true;
+    r.fired = true; fired = true;
   });
-  if (changed) {
+  if (fired) {
     reminders = reminders.filter(r => !r.fired);
     saveReminders(); markReminderButtons();
   }
-}, 1000);
+  if (stale) renderArrivals();
+}
+setInterval(tick, 1000);
+
+function updateHero(now, hasWalk) {
+  const el = document.getElementById("hero");
+  if (!el) return;
+  if (!heroTrips.length) { el.textContent = ""; return; }
+  let best = null;
+  for (const t of heroTrips) if (t.leave >= now && (!best || t.leave < best.leave)) best = t;
+  if (!best) { el.textContent = "Nothing left in the list that you can still catch."; return; }
+  const d = best.leave - now;
+  const when = d <= LEAVE_NOW_WINDOW_SEC
+    ? (hasWalk ? "leave now" : "go to the stop now")
+    : `${hasWalk ? "leave" : "be at the stop"} in ${Math.ceil(d / 60)} min`;
+  const where = best.a.trip_headsign ? ` to ${esc(best.a.trip_headsign)}` : "";
+  el.innerHTML = `<span class="hero-kicker">Next one you can catch</span><strong>${esc(routeKey(best.a))}</strong>${where}, ${when}`;
+}
 
 const BUS_SVG = `<svg viewBox="0 0 24 24"><path d="M4 16c0 .88.39 1.67 1 2.22V20c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h8v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1.78c.61-.55 1-1.34 1-2.22V6c0-3.5-3.58-4-8-4s-8 .5-8 4v10zm3.5 1c-.83 0-1.5-.67-1.5-1.5S6.67 14 7.5 14s1.5.67 1.5 1.5S8.33 17 7.5 17zm9 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zM18 11H6V6h12v5z"/></svg>`;
+const CLOCK_SVG = `<span class="sched-icon" aria-hidden="true"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>`;
 
 function makeStopIcon(selected = false) {
   return L.divIcon({
@@ -518,9 +777,11 @@ function makeUserIcon() {
   });
 }
 
+// -------- Location (only after the user asks) --------
 let userMarker = null;
 let userAccuracyCircle = null;
 let lastKnownPosition = null;
+let geoWatchId = null;
 
 function setUserLocation(lat, lon, accuracy) {
   lastKnownPosition = { lat, lon, accuracy };
@@ -532,157 +793,144 @@ function setUserLocation(lat, lon, accuracy) {
   }).addTo(map);
   userMarker = L.marker([lat, lon], { icon: makeUserIcon(), zIndexOffset: 1000 })
     .addTo(map)
-    .bindTooltip("You are here", { className: "stop-tooltip", direction: "top", offset: [0,-10] });
+    .bindTooltip("You are here", { className: "stop-tooltip", direction: "top", offset: [0, -10] });
 }
 
-function watchUser() {
-  if (!navigator.geolocation) return;
-  navigator.geolocation.watchPosition(
-    p => setUserLocation(p.coords.latitude, p.coords.longitude, p.coords.accuracy),
-    err => console.warn("geo:", err.message),
-    { enableHighAccuracy: true, maximumAge: 10000 }
-  );
+function setLocMessage(text) {
+  const el = document.querySelector("#loc-cta .loc-msg");
+  if (el) el.textContent = text;
 }
 
-// -------- Favorites (localStorage) --------
+function requestLocation(recenter) {
+  if (!navigator.geolocation) { setLocMessage("This browser can't share your location."); return; }
+  setLocMessage("Finding you...");
+  navigator.geolocation.getCurrentPosition(async p => {
+    setUserLocation(p.coords.latitude, p.coords.longitude, p.coords.accuracy);
+    if (recenter) map.setView([p.coords.latitude, p.coords.longitude], 16);
+    // Keep following the user from now on; walk times re-route on each arrivals refresh.
+    if (geoWatchId == null) {
+      geoWatchId = navigator.geolocation.watchPosition(
+        q => setUserLocation(q.coords.latitude, q.coords.longitude, q.coords.accuracy),
+        err => console.warn("geo:", err.message),
+        { enableHighAccuracy: true, maximumAge: 10000 });
+    }
+    if (currentStop) {
+      const stopId = currentStop.stop_id;
+      await refreshWalkMinutes(currentStop);
+      if (currentStop && currentStop.stop_id === stopId) renderArrivals();
+    }
+  }, err => {
+    setLocMessage(err.code === 1
+      ? "Location is blocked, so times show when to be at the stop."
+      : "Couldn't get your location. Try again.");
+  }, { enableHighAccuracy: true, maximumAge: 15000, timeout: 15000 });
+}
+
+// -------- Favourites (localStorage) --------
 const FAV_KEY = "adlt_favs";
 function getFavs() {
-  try { return JSON.parse(localStorage.getItem(FAV_KEY) || "[]"); } catch { return []; }
+  try {
+    const list = JSON.parse(localStorage.getItem(FAV_KEY) || "[]");
+    return Array.isArray(list) ? list.filter(f => f && f.stop_id != null) : [];
+  } catch { return []; }
 }
-function setFavs(list) { localStorage.setItem(FAV_KEY, JSON.stringify(list)); renderFavs(); }
-function isFav(id) { return getFavs().some(s => s.stop_id === id); }
+function setFavs(list) {
+  try { localStorage.setItem(FAV_KEY, JSON.stringify(list)); } catch {}
+  renderFavs();
+}
+function favFor(id) { return getFavs().find(s => s.stop_id === id) || null; }
 function toggleFav(stop) {
   const favs = getFavs();
-  const i = favs.findIndex(s => s.stop_id === stop.stop_id);
-  if (i >= 0) favs.splice(i, 1);
-  else favs.push({ stop_id: stop.stop_id, stop_name: stop.stop_name,
-                   stop_lat: stop.stop_lat, stop_lon: stop.stop_lon });
-  setFavs(favs);
+  setFavs(favs.some(s => s.stop_id === stop.stop_id)
+    ? favs.filter(s => s.stop_id !== stop.stop_id)
+    : [...favs, { stop_id: stop.stop_id, stop_name: stop.stop_name,
+                  stop_lat: stop.stop_lat, stop_lon: stop.stop_lon, myRoute: null }]);
+}
+function setMyRoute(stopId, route) {
+  setFavs(getFavs().map(f => (f.stop_id === stopId ? { ...f, myRoute: route } : f)));
 }
 function renderFavs() {
   const el = document.getElementById("favs");
   const favs = getFavs();
-  if (!favs.length) { el.innerHTML = '<div class="muted">No favorites yet.</div>'; return; }
-  el.innerHTML = favs.map(s => `
-    <div class="fav-item" data-id="${s.stop_id}">
-      <span class="fav-name">${s.stop_name}</span>
-      <span class="rm" data-rm="${s.stop_id}">×</span>
+  if (!favs.length) {
+    el.className = "muted";
+    el.textContent = "No favourites yet. Star a stop to add it.";
+    return;
+  }
+  el.className = "";
+  el.innerHTML = favs.map((s, i) => `
+    <div class="fav-item">
+      <button type="button" class="fav-open" data-i="${i}">${esc(s.stop_name)}${s.myRoute ? ` · ${esc(s.myRoute)}` : ""}</button>
+      <button type="button" class="rm" data-i="${i}" aria-label="Remove ${esc(s.stop_name)} from favourites">×</button>
     </div>`).join("");
-  el.querySelectorAll(".fav-item").forEach(div => {
-    div.addEventListener("click", e => {
-      if (e.target.dataset.rm) {
-        toggleFav({stop_id: e.target.dataset.rm});
-      } else {
-        const s = favs.find(f => f.stop_id === div.dataset.id);
-        map.setView([s.stop_lat, s.stop_lon], 17);
-        showArrivals(s);
-      }
-    });
-  });
+  el.querySelectorAll(".fav-open").forEach(btn => btn.addEventListener("click", () => {
+    const s = favs[Number(btn.dataset.i)];
+    if (Number.isFinite(Number(s.stop_lat)) && Number.isFinite(Number(s.stop_lon))) {
+      map.setView([Number(s.stop_lat), Number(s.stop_lon)], 16);
+    }
+    showArrivals(s);
+  }));
+  el.querySelectorAll(".rm").forEach(btn => btn.addEventListener("click", () => {
+    const s = favs[Number(btn.dataset.i)];
+    toggleFav(s);
+    if (currentStop && currentStop.stop_id === s.stop_id) updateStar();
+  }));
 }
 
 // -------- Map stops --------
-async function loadStopsInView() {
+// Stops don't move, so cache each fetched area by its centre rounded to 0.01 degrees
+// (about 1 km). The 1.5 km fetch radius still covers the rounded-off part.
+const stopCache = new Map();
+let lastStopsKey = null;
+let stopsDebounce = null;
+
+function scheduleStopsLoad() {
+  clearTimeout(stopsDebounce);
+  stopsDebounce = setTimeout(loadStopsInView, 300);
+}
+
+function centreKey() {
   const c = map.getCenter();
-  const stops = await apiFetch(`${API}/stops?lat=${c.lat}&lon=${c.lng}&radius_km=1.5`);
-  if (!stops) return;
+  return `${c.lat.toFixed(2)},${c.lng.toFixed(2)}`;
+}
+
+async function loadStopsInView() {
+  const key = centreKey();
+  if (key === lastStopsKey) return;
+  let stops = stopCache.get(key);
+  if (!stops) {
+    const [lat, lon] = key.split(",");
+    stops = await apiFetch(`${API}/stops?lat=${lat}&lon=${lon}&radius_km=${STOPS_RADIUS_KM}`);
+    if (!stops) return;
+    stopCache.set(key, stops);
+    if (stopCache.size > STOPS_CACHE_MAX) stopCache.delete(stopCache.keys().next().value);
+    if (key !== centreKey()) return;   // the user panned on while we waited
+  }
+  lastStopsKey = key;
   stopLayer.clearLayers();
+  currentMarker = null;
   stops.forEach(s => {
-    const m = L.marker([s.stop_lat, s.stop_lon], { icon: makeStopIcon(), stopRef: s });
-    m.bindTooltip(s.stop_name, { className: "stop-tooltip", direction: "top", offset: [0,-8] });
+    const selected = !!currentStop && currentStop.stop_id === s.stop_id;
+    const m = L.marker([s.stop_lat, s.stop_lon], { icon: makeStopIcon(selected) });
+    if (selected) currentMarker = m;
+    m.bindTooltip(esc(s.stop_name), { className: "stop-tooltip", direction: "top", offset: [0, -8] });
     m.on("click", () => {
-      showArrivals(s);
       if (currentMarker) currentMarker.setIcon(makeStopIcon(false));
       m.setIcon(makeStopIcon(true));
       currentMarker = m;
+      showArrivals(s);
     });
     stopLayer.addLayer(m);
   });
   document.getElementById("status").innerHTML =
-    `<span class="count">${stops.length}</span> stops visible · click any to see arrivals`;
-}
-
-// -------- Formatting --------
-function delayClass(sec) {
-  if (sec == null) return "";
-  if (sec <= 60) return "delay-on";
-  if (sec <= 300) return "delay-late";
-  return "delay-bad";
-}
-function fmtDelay(sec) {
-  if (sec == null) return "no realtime data";
-  const m = Math.round(sec / 60);
-  if (m === 0) return "on time";
-  return m > 0 ? `${m} min late` : `${Math.abs(m)} min early`;
-}
-function fmtTime(ts) {
-  if (!ts) return "";
-  return new Date(ts * 1000).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"});
-}
-function fmtHMS(hms) { return hms ? hms.slice(0,5) : ""; }
-
-function fmtMins(sec) {
-  const m = sec / 60;
-  const abs = Math.abs(m).toFixed(m % 1 === 0 ? 0 : 1);
-  return m >= 0 ? `${abs} late` : `${abs} early`;
-}
-
-function classifyPattern(t) {
-  if (!t) return null;
-  const lo = Math.round(t.p25_sec / 60);
-  const hi = Math.round(t.p75_sec / 60);
-  const mid = Math.round(t.p50_sec / 60);
-  let kind;
-  if (lo === 0 && hi === 0)      kind = "on_time";
-  else if (lo >= 0 && hi >= 0)   kind = "late";   // includes zero-to-late
-  else if (lo <= 0 && hi <= 0)   kind = "early";  // includes early-to-zero
-  else                            kind = "mixed";  // straddles zero
-  return { lo, hi, mid, kind };
-}
-
-function patternText(t) {
-  if (!t) return "Not enough history yet for this route+hour - keep collecting";
-  const c = classifyPattern(t);
-  const day = t.day_type === "weekend" ? "weekends" : "weekdays";
-  const scopeNote = {
-    "exact": `at this hour on ${day}`,
-    "±1h":   `around this hour on ${day}`,
-    "all-hours-day-type": `on ${day} (any hour)`,
-    "all":   `overall (any hour, any day)`,
-    "all-time-aggregated": `overall, from older history`,
-  }[t.scope] || `on ${day}`;
-
-  let core;
-  if (c.kind === "on_time") {
-    core = `Usually on time ${scopeNote}`;
-  } else if (c.kind === "late") {
-    if (c.lo === c.hi) {
-      core = `Usually about ${c.hi} min late ${scopeNote}`;
-    } else if (c.lo === 0) {
-      core = `Sometimes on time, up to ${c.hi} min late ${scopeNote}`;
-    } else {
-      core = `Usually ${c.lo} to ${c.hi} min late ${scopeNote}`;
-    }
-  } else if (c.kind === "early") {
-    const aLo = Math.abs(c.lo), aHi = Math.abs(c.hi);
-    if (aLo === aHi) {
-      core = `Usually about ${aHi} min early ${scopeNote} - leave earlier`;
-    } else if (c.hi === 0) {
-      core = `Sometimes on time, up to ${aLo} min early ${scopeNote} - leave earlier`;
-    } else {
-      core = `Usually ${aHi} to ${aLo} min early ${scopeNote} - leave earlier`;
-    }
-  } else {
-    core = `Up to ${Math.abs(c.lo)} min early, up to ${c.hi} min late ${scopeNote}`;
-  }
-  return `${core} (${t.samples} samples)`;
+    `<span class="count">${stops.length}</span> stops visible · tap any to see arrivals`;
 }
 
 function haversineMeters(lat1, lon1, lat2, lon2) {
   const R = 6371000, toRad = d => d * Math.PI / 180;
   const dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
-  const a = Math.sin(dLat/2) ** 2 +
-            Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon/2) ** 2;
+  const a = Math.sin(dLat / 2) ** 2 +
+            Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
@@ -701,7 +949,8 @@ async function refreshWalkMinutes(stop) {
   let min = Math.max(1, Math.ceil(straight * 1.35 / 1000 / 5 * 60));
   let ok = false;
   try {
-    const r = await fetch(`https://routing.openstreetmap.de/routed-foot/route/v1/foot/${p.lon},${p.lat};${stop.stop_lon},${stop.stop_lat}?overview=false`);
+    const r = await fetch(`https://routing.openstreetmap.de/routed-foot/route/v1/foot/${p.lon},${p.lat};${stop.stop_lon},${stop.stop_lat}?overview=false`,
+                          { signal: timeoutSignal() });
     const d = await r.json();
     if (d.code === "Ok" && d.routes && d.routes[0]) {
       min = Math.max(1, Math.ceil(d.routes[0].duration / 60));
@@ -718,213 +967,282 @@ function walkMinutesToStop(stop) {
   return walkCache.min;
 }
 
-function renderArrival(a) {
-  const pattern = patternText(a.typical);
-  const hasLive = a.has_gps === 1;
-  const safetyMin = 2;
-
-  // Status row: live dot + delay, or scheduled icon
-  let statusRow;
-  if (hasLive) {
-    statusRow = `
-      <div class="a-status">
-        <span class="live-dot"></span>
-        <span class="${delayClass(a.delay_seconds)}">${fmtDelay(a.delay_seconds)}</span>
-        <span class="muted" style="font-size:11px;">· Live GPS</span>
-      </div>`;
-  } else {
-    statusRow = `
-      <div class="a-status">
-        <span class="sched-icon"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
-        <span class="muted">Scheduled · no live GPS</span>
-      </div>`;
+// -------- Arrival cards --------
+// Three honest labels for where a time comes from.
+function statusRow(a) {
+  const d = a.delay_seconds;
+  if (a.has_gps === 1) {
+    return `<div class="a-status"><span class="live-dot" aria-hidden="true"></span>
+      <span class="${delayClass(d)}">${fmtDelay(d)}</span><span class="src">· Live GPS</span></div>`;
   }
-
-  // Leave-by hero block
-  let leaveBlock = "";
-  if (a.predicted_arrival) {
-    let extraBuffer = 0;
-    let reason;
-    if (hasLive) {
-      reason = "Live GPS trusted, 2 min safety";
-    } else if (a.typical) {
-      const c = classifyPattern(a.typical);
-      if (c.kind === "early" || c.kind === "mixed") {
-        extraBuffer = Math.max(0, -c.lo);
-        reason = extraBuffer > 0
-          ? `${extraBuffer} min early buffer + ${safetyMin} min safety`
-          : `${safetyMin} min safety buffer`;
-      } else {
-        reason = "Pattern says on time or late, 2 min safety";
-      }
-    } else {
-      extraBuffer = 1;
-      reason = "No data yet, 3 min total buffer";
-    }
-    const beAtStopTs = Math.round(a.predicted_arrival - (extraBuffer + safetyMin) * 60);
-    const walkMin = walkMinutesToStop(currentStop);
-
-    // With a location fix, "leave by" means leave *your current spot*, not
-    // just be at the stop, so fold the walk time into both the headline
-    // time and the reminder trigger. Without one, fall back to the old
-    // "be at stop by" framing since we have nothing to walk-adjust from.
-    const leaveTs = walkMin != null ? beAtStopTs - walkMin * 60 : beAtStopTs;
-    const leaveAt = new Date(leaveTs * 1000);
-    const hh = String(leaveAt.getHours()).padStart(2,"0");
-    const mm = String(leaveAt.getMinutes()).padStart(2,"0");
-    const label = walkMin != null ? "Leave by" : "Be at stop by";
-    const fullReason = walkMin != null
-      ? `${walkMin} min walk to the stop, ${reason}`
-      : `${reason} · turn on location for a precise leave time`;
-    const beAtStopLine = walkMin != null
-      ? `<div class="reason">Be at stop by ${String(new Date(beAtStopTs*1000).getHours()).padStart(2,"0")}:${String(new Date(beAtStopTs*1000).getMinutes()).padStart(2,"0")}</div>`
-      : "";
-    leaveBlock = `
-      <div class="a-leave">
-        <div class="board"><span class="label">${label}</span><span class="time">${hh}:${mm}</span></div>
-        <div class="leave-info"><div class="reason">${fullReason}</div>${beAtStopLine}</div>
-        <button class="remind-btn"
-          data-key="${a.trip_id}_${currentStop ? currentStop.stop_id : ''}"
-          data-leave="${leaveTs}" data-pred="${a.predicted_arrival}"
-          data-route="${a.route_short_name ?? ''}"
-          data-headsign="${(a.trip_headsign ?? '').replace(/["<>]/g,'')}">Remind me to leave</button>
-      </div>`;
+  if (d != null) {
+    return `<div class="a-status">${CLOCK_SVG}
+      <span class="${delayClass(d)}">${fmtDelay(d)}</span><span class="src">· Operator estimate, no GPS</span></div>`;
   }
+  return `<div class="a-status">${CLOCK_SVG}<span class="src">Timetable only</span></div>`;
+}
 
+function shortSource(a) {
+  if (a.has_gps === 1) return "live GPS";
+  return a.delay_seconds != null ? "estimate" : "timetable";
+}
+
+function renderGroup(g, i, walkMin, showMine, myRoute) {
+  const p = g.primary, a = p.a;
+  const idx = g.trips.indexOf(p);
+  const after = g.trips.slice(idx + 1, idx + 3);
+  const verb = walkMin != null ? "leave" : "at stop";
+  const reason = walkMin != null ? `${walkMin} min walk to the stop. ${p.reason}` : p.reason;
+  const canRemind = p.leave >= nowSec();
+  const mine = g.route === myRoute;
   return `
-    <article class="arrival">
+    <article class="arrival${mine ? " mine" : ""}" data-group="${i}">
       <div class="a-top">
-        <span class="a-route">${a.route_short_name ?? "?"}</span>
+        <span class="a-route">${esc(g.route)}</span>
         <div class="a-main">
-          <div class="a-headsign">${a.trip_headsign ?? ""}</div>
-          ${statusRow}
+          <h3 class="a-headsign">${esc(g.headsign || a.route_long_name || "")}</h3>
+          ${statusRow(a)}
         </div>
         <div class="a-when">
-          <span class="a-count" data-pred="${a.predicted_arrival}">${countdownText(a.predicted_arrival)}</span>
-          <span class="a-time">${fmtTime(a.predicted_arrival)}</span>
+          <span class="a-count" data-pred="${Number(p.pred)}">${countdownText(p.pred)}</span>
+          <span class="a-time">arrives ${fmtTime(p.pred)}</span>
         </div>
       </div>
-      ${pattern ? `<p class="a-pattern">${pattern}</p>` : ""}
-      ${leaveBlock}
+      <p class="a-pattern">${esc(patternText(a.typical))}</p>
+      <div class="a-leave">
+        <div class="board"><span class="label"></span><span class="time"></span></div>
+        <div class="leave-info"><div class="reason state-note"></div><div class="reason">${esc(reason)}</div></div>
+        <div class="leave-actions">
+          ${canRemind ? `<button type="button" class="remind-btn" data-key="${esc(p.key)}">Remind me to leave</button>` : ""}
+          ${showMine ? `<button type="button" class="mine-btn" data-route="${esc(g.route)}" aria-pressed="${mine}">${mine ? "My route" : "Set as my route"}</button>` : ""}
+        </div>
+      </div>
+      ${after.length ? `<div class="a-then">Then ${after.map(t =>
+        `<b>${fmtTime(t.pred)}</b> (${verb} ${fmtTime(t.leave)}, ${shortSource(t.a)})`).join(", ")}</div>` : ""}
     </article>`;
 }
 
-// -------- Stop panel: arrivals + reliability + planner --------
+function renderChips(routes) {
+  const el = document.getElementById("chips");
+  if (!el) return;
+  if (routes.length < 2) { el.innerHTML = ""; return; }
+  const hadFocus = document.activeElement && document.activeElement.classList.contains("chip");
+  el.innerHTML = ["", ...routes].map(r =>
+    `<button type="button" class="chip" data-route="${esc(r)}" aria-pressed="${(routeFilter || "") === r}">${r ? esc(r) : "All"}</button>`
+  ).join("");
+  el.querySelectorAll(".chip").forEach(btn => btn.addEventListener("click", () => {
+    routeFilter = btn.dataset.route || null;
+    renderArrivals();
+  }));
+  if (hadFocus) el.querySelector('.chip[aria-pressed="true"]')?.focus();
+}
+
+// Draw the cards from the last good response. Cheap, so the ticker calls it whenever a bus passes.
+function renderArrivals() {
+  const box = document.getElementById("arrivals");
+  if (!box || !currentStop || !lastArrivals || lastArrivals.stopId !== currentStop.stop_id) return;
+  const now = nowSec();
+  const stopId = currentStop.stop_id;
+  const walkMin = walkMinutesToStop(currentStop);
+  const trips = (lastArrivals.data.arrivals || [])
+    .filter(a => a.predicted_arrival > now)
+    .map(a => planTrip(a, stopId, walkMin));
+  tripByKey = new Map(trips.map(t => [t.key, t]));
+  syncReminders(trips);
+  document.getElementById("loc-cta").hidden = walkMin != null;
+
+  const fav = favFor(stopId);
+  const myRoute = fav ? fav.myRoute : null;
+  // Big trip on each card = the next one you can still make, else the next one to arrive.
+  const groups = groupTrips(trips).map(g => ({ ...g, primary: g.trips.find(t => t.leave >= now) || g.trips[0] }));
+  groups.sort((x, y) => (y.route === myRoute) - (x.route === myRoute) || x.primary.leave - y.primary.leave);
+
+  const routes = [...new Set(groups.map(g => g.route))]
+    .sort((x, y) => (y === myRoute) - (x === myRoute) || x.localeCompare(y, undefined, { numeric: true }));
+  if (routeFilter && !routes.includes(routeFilter)) routeFilter = null;
+  renderChips(routes);
+
+  const shown = routeFilter ? groups.filter(g => g.route === routeFilter) : groups;
+  heroTrips = shown.flatMap(g => g.trips);
+  if (!shown.length) {
+    box.innerHTML = '<div class="muted">No more buses scheduled here today.</div>';
+    renderedGroups = [];
+    tick();
+    return;
+  }
+  const summary = `<div class="arrivals-summary">${trips.length} buses in the list${
+    lastArrivals.data.last_service ? ` · last service ${fmtTime(lastArrivals.data.last_service)}` : ""
+  } · as of ${fmtTime(Math.floor(lastArrivals.at / 1000))}</div>`;
+  box.innerHTML = summary + shown.map((g, i) => renderGroup(g, i, walkMin, !!fav, myRoute)).join("");
+  renderedGroups = shown.map((g, i) => ({ ...g, el: box.querySelector(`[data-group="${i}"]`) }));
+  box.querySelectorAll(".remind-btn").forEach(btn => btn.addEventListener("click", () => toggleReminder(btn)));
+  box.querySelectorAll(".mine-btn").forEach(btn => btn.addEventListener("click", () => {
+    const route = btn.dataset.route;
+    const isMine = btn.getAttribute("aria-pressed") === "true";
+    setMyRoute(stopId, isMine ? null : route);
+    routeFilter = isMine ? null : route;
+    renderArrivals();
+  }));
+  markReminderButtons();
+  tick();
+}
+
+function showArrivalsError() {
+  const status = document.getElementById("arrivals-status");
+  if (!status || !currentStop) return;
+  const haveOld = lastArrivals && lastArrivals.stopId === currentStop.stop_id;
+  status.innerHTML = `<span>${haveOld
+    ? `Couldn't update. Showing times as of ${fmtTime(Math.floor(lastArrivals.at / 1000))}.`
+    : "Couldn't load arrivals for this stop."}</span><button type="button" class="retry-btn">Retry</button>`;
+  status.hidden = false;
+  if (!haveOld) document.getElementById("arrivals").innerHTML = "";
+  const btn = status.querySelector(".retry-btn");
+  btn.addEventListener("click", () => {
+    btn.disabled = true; btn.textContent = "Retrying...";
+    loadArrivals(currentStop.stop_id);
+  });
+}
+
+// -------- Stop panel --------
 let arrivalsTimer = null;
 let arrivalsRefresh = null;
 
-// Fetch + render the arrivals list. Called on open and every 30s so times stay live.
+// Fetch the arrivals list. Called on open and every 30 s so times stay live.
 async function loadArrivals(stopId) {
-  const data = await apiFetch(`${API}/stop/${stopId}/next?limit=50`);
-  if (!data) return;                                           // offline, banner already shown
+  const data = await apiFetch(`${API}/stop/${encodeURIComponent(stopId)}/next?limit=50`);
   if (!currentStop || currentStop.stop_id !== stopId) return;  // user switched stops
+  if (!data || !Array.isArray(data.arrivals)) { showArrivalsError(); return; }
+  lastArrivals = { stopId, data, at: Date.now() };
+  document.getElementById("arrivals-status").hidden = true;
   await refreshWalkMinutes(currentStop);
   if (!currentStop || currentStop.stop_id !== stopId) return;  // switched while routing
-  const box = document.getElementById("arrivals");
-  if (!box) return;                                            // panel gone
-  if (!data.arrivals.length) {
-    box.innerHTML = '<div class="muted">No more buses scheduled here today.</div>';
-    return;
-  }
-  const last = data.last_service
-    ? `<div class="arrivals-summary">${data.arrivals.length} buses left today · last service ${fmtTime(data.last_service)}</div>`
-    : "";
-  box.innerHTML = last + data.arrivals.map(a => renderArrival(a)).join("");
-  box.querySelectorAll(".remind-btn").forEach(btn => btn.onclick = () => toggleReminder(btn));
-  markReminderButtons();
+  renderArrivals();
 }
 
-async function showArrivals(stop) {
-  currentStop = stop;
-  const panel = document.getElementById("stop-section");
-  const starred = isFav(stop.stop_id);
+function updateStar() {
+  const btn = document.getElementById("star-btn");
+  if (!btn || !currentStop) return;
+  const on = !!favFor(currentStop.stop_id);
+  btn.classList.toggle("on", on);
+  btn.setAttribute("aria-pressed", String(on));
+  renderArrivals();   // shows or hides the "my route" buttons
+}
 
+function setSheetCollapsed(collapsed) {
+  document.body.classList.toggle("sheet-collapsed", collapsed);
+  const btn = document.getElementById("sheet-toggle");
+  btn.setAttribute("aria-expanded", String(!collapsed));
+  btn.setAttribute("aria-label", collapsed ? "Expand panel" : "Collapse panel");
+  setTimeout(() => map.invalidateSize(), 300);   // the map area changed size
+}
+
+function showArrivals(stop) {
+  if (!currentStop || currentStop.stop_id !== stop.stop_id) lastArrivals = null;
+  currentStop = stop;
+  const fav = favFor(stop.stop_id);
+  routeFilter = fav && fav.myRoute ? fav.myRoute : null;
+  renderedGroups = [];
+  heroTrips = [];
+  document.body.classList.add("stop-open");
+  setSheetCollapsed(false);
+
+  const panel = document.getElementById("stop-section");
   panel.innerHTML = `
     <div class="stop-header">
-      <div class="stop-kicker">Stop ID ${stop.stop_id}</div>
+      <div class="stop-kicker">Stop ID ${esc(stop.stop_id)}</div>
       <div class="stop-name">
-        <span>${stop.stop_name}</span>
-        <button class="star ${starred ? "on" : ""}" id="star-btn" aria-label="Save as favourite" title="Save as favourite">★</button>
+        <h2>${esc(stop.stop_name)}</h2>
+        <button class="star ${fav ? "on" : ""}" id="star-btn" aria-pressed="${!!fav}" aria-label="Favourite stop" title="Save as favourite">★</button>
       </div>
     </div>
-
+    <div class="loc-cta" id="loc-cta" ${lastKnownPosition ? "hidden" : ""}>
+      <span class="loc-msg">Add your walk to the leave time.</span>
+      <button type="button" class="hdr-btn" id="loc-cta-btn">Use my location</button>
+    </div>
+    <p class="hero" id="hero" aria-live="off"></p>
+    <div class="chips" id="chips" role="group" aria-label="Filter by route"></div>
     <div class="section">
       <h3>Next arrivals</h3>
-      <div id="arrivals" class="muted">loading...</div>
+      <div class="arrivals-status" id="arrivals-status" role="alert" hidden></div>
+      <div id="arrivals" class="muted">Loading arrivals...</div>
     </div>
-
     <div class="section">
-      <h3>Avg delay by hour (all buses combined)</h3>
+      <h3>Average delay by hour at this stop (live GPS buses, all routes)</h3>
       <div class="chart-card"><canvas id="reliabilityChart" height="150"></canvas></div>
       <div class="muted" id="reliability-note"></div>
     </div>
   `;
+  document.getElementById("panel").scrollTop = 0;
+  document.getElementById("star-btn").addEventListener("click", () => { toggleFav(stop); updateStar(); });
+  document.getElementById("loc-cta-btn").addEventListener("click", () => requestLocation(false));
 
-  document.getElementById("star-btn").onclick = () => {
-    toggleFav(stop);
-    document.getElementById("star-btn").classList.toggle("on");
-  };
-
-  // Arrivals: load now, then auto-refresh every 30s so the list stays live
   loadArrivals(stop.stop_id);
   clearInterval(arrivalsTimer);
   arrivalsRefresh = () => loadArrivals(stop.stop_id);
-  arrivalsTimer = setInterval(() => { if (!document.hidden) arrivalsRefresh(); }, 30000);
+  arrivalsTimer = setInterval(() => { if (!document.hidden) arrivalsRefresh(); }, ARRIVALS_REFRESH_MS);
+  loadReliability(stop.stop_id);
+}
 
-  // Reliability chart (fetched once per stop open, doesn't need live polling)
-  const data = await apiFetch(`${API}/stop/${stop.stop_id}/reliability`);
-  if (data) {
-    const ctx = document.getElementById("reliabilityChart");
-    if (ctx) {
-    const hours = Array.from({length: 24}, (_, i) => i);
-    const map = Object.fromEntries(data.by_hour.map(d => [d.hour, d.avg_delay/60]));
-    const totalSamples = data.by_hour.reduce((s, d) => s + d.samples, 0);
-    if (reliabilityChart) reliabilityChart.destroy();
-    reliabilityChart = new Chart(ctx, {
-      type: "bar",
-      data: {
-        labels: hours.map(h => h + "h"),
-        datasets: [{
-          label: "delay (minutes)",
-          data: hours.map(h => map[h] ?? 0),
-          backgroundColor: hours.map(h => {
-            const v = map[h] ?? 0;
-            if (v < -0.5) return "#3b82f6";   // early
-            if (v <= 1)  return "#22c55e";   // on time
-            if (v <= 5)  return "#f59e0b";   // late
-            return "#ef4444";                 // very late
-          }),
-          borderRadius: 3,
-          maxBarThickness: 12,
-        }]
-      },
-      options: {
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            callbacks: { label: c => `${c.raw.toFixed(1)} min` }
-          }
-        },
-        scales: {
-          x: { title: { display: true, text: "hour of day", color: "#8a8e96" },
-               grid: { display: false },
-               ticks: { color: "#8a8e96", maxRotation:0, autoSkip:true } },
-          y: { title: { display: true, text: "minutes (− early / + late)", color: "#8a8e96" },
-               grid: { color: "rgba(138,142,150,0.18)" },
-               border: { display: false },
-               ticks: { color: "#8a8e96",
-                        callback: v => v + " min" } }
-        }
-      }
-    });
-    document.getElementById("reliability-note").textContent =
-      `Based on ${totalSamples.toLocaleString()} samples across all buses at this stop.`;
-    }
+// Reliability chart, fetched once per stop open. Hours with little or no data stay blank.
+async function loadReliability(stopId) {
+  const data = await apiFetch(`${API}/stop/${encodeURIComponent(stopId)}/reliability`);
+  if (!currentStop || currentStop.stop_id !== stopId) return;
+  const ctx = document.getElementById("reliabilityChart");
+  const note = document.getElementById("reliability-note");
+  if (!ctx || !note) return;
+  if (!data || !Array.isArray(data.by_hour)) { note.textContent = "Couldn't load delay history."; return; }
+  const used = data.by_hour.filter(d => d.samples >= MIN_CHART_SAMPLES);
+  if (!used.length) {
+    ctx.closest(".chart-card").hidden = true;
+    note.textContent = "Not enough live GPS history at this stop yet.";
+    return;
   }
+  const byHour = Object.fromEntries(used.map(d => [d.hour, d.avg_delay / 60]));
+  const hours = Array.from({ length: 24 }, (_, i) => i);
+  const values = hours.map(h => byHour[h] ?? null);
+  const total = used.reduce((s, d) => s + d.samples, 0);
+  const css = getComputedStyle(document.documentElement);
+  const ink = css.getPropertyValue("--muted").trim() || "#5d6169";
+  if (reliabilityChart) reliabilityChart.destroy();
+  reliabilityChart = new Chart(ctx, {
+    type: "bar",
+    data: {
+      labels: hours.map(h => h + "h"),
+      datasets: [{
+        label: "average delay (minutes)",
+        data: values,
+        backgroundColor: values.map(v => {
+          if (v == null) return "transparent";
+          if (v < -0.5 || (v > 1 && v <= 5)) return "#f59e0b";   // early or a bit late: both a warning
+          if (v <= 1) return "#22c55e";
+          return "#ef4444";
+        }),
+        borderRadius: 3,
+        maxBarThickness: 12,
+      }],
+    },
+    options: {
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: c => (c.raw == null ? "no data" : fmtOffset(c.raw * 60) + " on average") } },
+      },
+      scales: {
+        x: { title: { display: true, text: "hour of day", color: ink },
+             grid: { display: false },
+             ticks: { color: ink, maxRotation: 0, autoSkip: true } },
+        y: { title: { display: true, text: "minutes (minus = early)", color: ink },
+             grid: { color: "rgba(138,142,150,0.18)" },
+             border: { display: false },
+             ticks: { color: ink, callback: v => v + " min" } },
+      },
+    },
+  });
+  note.textContent = `From ${total.toLocaleString()} live GPS readings. Hours with fewer than ${MIN_CHART_SAMPLES} readings are left blank. Green: within a minute. Amber: early, or up to 5 min late. Red: more than 5 min late.`;
 }
 
 // -------- Theme toggle --------
 const THEME_KEY = "adlt_theme";
+function readTheme() { try { return localStorage.getItem(THEME_KEY); } catch { return null; } }
 function applyTheme(theme) {
   if (theme === "light" || theme === "dark") {
     document.documentElement.setAttribute("data-theme", theme);
@@ -940,62 +1258,86 @@ function applyTheme(theme) {
   refTiles.setUrl(isDark ? TILE_REF_DARK : TILE_REF_LIGHT);
 }
 function toggleTheme() {
-  const current = localStorage.getItem(THEME_KEY);
+  const current = readTheme();
   const isDark = current === "dark" ||
     (current !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);
   const next = isDark ? "light" : "dark";
-  localStorage.setItem(THEME_KEY, next);
+  try { localStorage.setItem(THEME_KEY, next); } catch {}
   applyTheme(next);
 }
-applyTheme(localStorage.getItem(THEME_KEY));
+applyTheme(readTheme());
 document.getElementById("theme-toggle").addEventListener("click", toggleTheme);
 
 // -------- Wire up --------
-map.on("moveend", loadStopsInView);
+map.on("moveend", scheduleStopsLoad);
 loadStopsInView();
 renderFavs();
 
-// Keep the map's visible stop list fresh without requiring the user to pan.
-// The open stop's own arrivals refresh separately via arrivalsTimer.
-setInterval(() => { if (!document.hidden) loadStopsInView(); }, 25000);
-
-// Polling pauses while the tab is hidden (saves the small server); catch up on return.
-document.addEventListener("visibilitychange", () => {
-  if (document.hidden) return;
+// While the server is unreachable and no stop is open, keep trying to load stops.
+// (An open stop already retries through its 30 s arrivals refresh.)
+setInterval(() => {
+  if (!isOffline || document.hidden || currentStop) return;
+  lastStopsKey = null;
   loadStopsInView();
-  if (arrivalsRefresh) arrivalsRefresh();
+}, OFFLINE_RETRY_MS);
+
+// Arrivals polling pauses while the tab is hidden (saves the small server); catch up on return.
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && arrivalsRefresh) arrivalsRefresh();
 });
 
-// -------- Search-as-you-type suggestions (stop names + geocoded addresses) --------
+// Mobile sheet: tap the handle to collapse/expand, or drag it up or down.
+(() => {
+  const btn = document.getElementById("sheet-toggle");
+  const panel = document.getElementById("panel");
+  panel.addEventListener("transitionend", e => {
+    if (e.target === panel && e.propertyName === "height") map.invalidateSize();
+  });
+  let startY = null, dragged = false;
+  btn.addEventListener("pointerdown", e => { startY = e.clientY; dragged = false; });
+  btn.addEventListener("pointerup", e => {
+    if (startY == null) return;
+    const dy = e.clientY - startY;
+    startY = null;
+    if (Math.abs(dy) > 30) { dragged = true; setSheetCollapsed(dy > 0); }
+  });
+  btn.addEventListener("click", () => {
+    if (dragged) { dragged = false; return; }
+    setSheetCollapsed(!document.body.classList.contains("sheet-collapsed"));
+  });
+})();
+
+// -------- Search-as-you-type suggestions --------
 const searchInput = document.getElementById("search");
 const suggBox = document.getElementById("search-suggestions");
 let searchToken = 0;     // ignore stale async responses that resolve out of order
 let searchDebounce = null;
-let activeSuggestions = []; // flat list backing the currently rendered rows
+let activeSuggestions = [];
 
 function closeSuggestions() {
   suggBox.hidden = true;
   suggBox.innerHTML = "";
   activeSuggestions = [];
+  searchInput.setAttribute("aria-expanded", "false");
 }
 
 function renderSuggestions(stopMatches) {
+  searchInput.setAttribute("aria-expanded", "true");
+  suggBox.hidden = false;
   if (!stopMatches.length) {
-    suggBox.innerHTML = `<div class="sugg-empty">No stops found.</div>`;
-    suggBox.hidden = false;
+    suggBox.innerHTML = `<div class="sugg-empty" role="status">No stops found.</div>`;
     activeSuggestions = [];
     return;
   }
-  activeSuggestions = stopMatches.map(s => ({ type: "stop", data: s }));
+  activeSuggestions = stopMatches;
   suggBox.innerHTML = stopMatches.map((s, i) => `
-    <div class="sugg-item" data-index="${i}">
-      <span class="sugg-icon stop">${BUS_SVG}</span>
+    <button type="button" class="sugg-item" data-index="${i}">
+      <span class="sugg-icon stop" aria-hidden="true">${BUS_SVG}</span>
       <span class="sugg-text">
-        <div class="sugg-title">${s.stop_name}</div>
-        <div class="sugg-sub">Stop ID ${s.stop_id}</div>
+        <span class="sugg-title">${esc(s.stop_name)}</span>
+        <span class="sugg-sub">Stop ID ${esc(s.stop_id)}</span>
       </span>
-    </div>`).join("");
-  suggBox.hidden = false;
+    </button>`).join("");
   suggBox.querySelectorAll(".sugg-item").forEach(el => {
     el.addEventListener("click", () => selectSuggestion(Number(el.dataset.index)));
   });
@@ -1004,10 +1346,10 @@ function renderSuggestions(stopMatches) {
 function selectSuggestion(index) {
   const picked = activeSuggestions[index];
   if (!picked) return;
-  searchInput.value = picked.data.stop_name;
+  searchInput.value = picked.stop_name;
   closeSuggestions();
-  map.setView([picked.data.stop_lat, picked.data.stop_lon], 17);
-  showArrivals(picked.data);
+  map.setView([picked.stop_lat, picked.stop_lon], 16);
+  showArrivals(picked);
 }
 
 searchInput.addEventListener("input", () => {
@@ -1016,19 +1358,36 @@ searchInput.addEventListener("input", () => {
   if (q.length < 3) { closeSuggestions(); return; }
   searchDebounce = setTimeout(async () => {
     const myToken = ++searchToken;
-    const stopMatches = await apiFetch(`${API}/stops?q=${encodeURIComponent(q)}`).then(r => r || []);
+    const stopMatches = (await apiFetch(`${API}/stops?q=${encodeURIComponent(q)}`)) || [];
     if (myToken !== searchToken) return; // a newer keystroke already started a fresher search
-    renderSuggestions(stopMatches.slice(0, 8));
+    renderSuggestions(Array.isArray(stopMatches) ? stopMatches.slice(0, 8) : []);
   }, 300);
 });
 
-// Enter picks the top suggestion currently shown, same as Google Maps.
+// Enter picks the top suggestion, arrow down moves into the list.
 searchInput.addEventListener("keydown", e => {
   if (e.key === "Enter" && activeSuggestions.length) {
     e.preventDefault();
     selectSuggestion(0);
+  } else if (e.key === "ArrowDown" && activeSuggestions.length) {
+    e.preventDefault();
+    suggBox.querySelector(".sugg-item")?.focus();
   } else if (e.key === "Escape") {
     closeSuggestions();
+  }
+});
+
+suggBox.addEventListener("keydown", e => {
+  const items = [...suggBox.querySelectorAll(".sugg-item")];
+  const i = items.indexOf(document.activeElement);
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    const next = i + (e.key === "ArrowDown" ? 1 : -1);
+    if (next < 0) searchInput.focus();
+    else items[Math.min(next, items.length - 1)]?.focus();
+  } else if (e.key === "Escape") {
+    closeSuggestions();
+    searchInput.focus();
   }
 });
 
@@ -1037,19 +1396,9 @@ document.addEventListener("click", e => {
 });
 
 document.getElementById("locate").addEventListener("click", () => {
-  // watchUser() has likely already reported a fix by the time the user clicks,
-  // jump there instantly instead of waiting on a fresh several-second GPS read.
-  if (lastKnownPosition) {
-    map.setView([lastKnownPosition.lat, lastKnownPosition.lon], 17);
-  }
-  navigator.geolocation?.getCurrentPosition(p => {
-    setUserLocation(p.coords.latitude, p.coords.longitude, p.coords.accuracy);
-    map.setView([p.coords.latitude, p.coords.longitude], 17);
-  }, err => console.warn("geo:", err.message), { maximumAge: 15000 });
+  if (lastKnownPosition) map.setView([lastKnownPosition.lat, lastKnownPosition.lon], 16);
+  requestLocation(true);
 });
-
-// Auto-track user location as they move
-watchUser();
 </script>
 </body>
 </html>

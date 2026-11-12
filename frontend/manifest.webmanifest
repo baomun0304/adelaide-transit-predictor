@@ -1,0 +1,15 @@
+{
+  "name": "Adelaide Transit Predictor",
+  "short_name": "Adl Transit",
+  "description": "When to actually leave for your Adelaide bus, using live GPS and how late or early each route really runs.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f4f3ef",
+  "theme_color": "#0f766e",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
