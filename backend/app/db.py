@@ -32,6 +32,21 @@ CREATE TABLE IF NOT EXISTS calendar (
     start_date TEXT, end_date TEXT
 );
 
+CREATE TABLE IF NOT EXISTS calendar_dates (
+    service_id TEXT,
+    date TEXT,
+    exception_type INTEGER,
+    PRIMARY KEY (service_id, date)
+);
+
+-- Filled by cleanup.py when old raw rows are rolled up. Created here too so the API's
+-- fallback query never fails on a database that has never been cleaned.
+CREATE TABLE IF NOT EXISTS delay_hourly (
+    date TEXT, hour INTEGER, dow INTEGER, route_id TEXT, stop_id TEXT,
+    avg_delay REAL, min_delay INTEGER, max_delay INTEGER, samples INTEGER,
+    PRIMARY KEY (date, hour, route_id, stop_id)
+);
+
 CREATE TABLE IF NOT EXISTS stop_times (
     trip_id TEXT,
     arrival_time TEXT,

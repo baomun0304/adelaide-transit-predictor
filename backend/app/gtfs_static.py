@@ -71,6 +71,16 @@ def load():
         except FileNotFoundError:
             print("calendar.txt missing - service-day filter will be disabled")
 
+        # Public holidays and one-off changes: 1 = service added on that date, 2 = removed.
+        cur.execute("DELETE FROM calendar_dates")
+        try:
+            cur.executemany(
+                "INSERT OR REPLACE INTO calendar_dates VALUES (?,?,?)",
+                [(r["service_id"], r["date"], int(r["exception_type"])) for r in _rows("calendar_dates.txt")],
+            )
+        except FileNotFoundError:
+            print("calendar_dates.txt missing - holiday changes will be ignored")
+
         cur.execute("DELETE FROM stop_times")
         batch = []
         for r in _rows("stop_times.txt"):

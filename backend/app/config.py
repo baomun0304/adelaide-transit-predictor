@@ -1,4 +1,12 @@
+import os
+import time
 from pathlib import Path
+
+# Every "today", weekday and hour bucket is Adelaide time, whatever zone the server runs in.
+# Setting TZ here also makes SQLite's 'localtime' modifier use it.
+os.environ["TZ"] = "Australia/Adelaide"
+if hasattr(time, "tzset"):
+    time.tzset()
 
 ROOT = Path(__file__).resolve().parents[2]
 DATA_DIR = ROOT / "data"

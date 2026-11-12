@@ -43,8 +43,10 @@ def fetch_live_trip_ids():
                     live.add(tid)
         return live
     except Exception as e:
+        # Returning an empty set here would file every trip as "no GPS" and spoil that
+        # window of history, so the caller skips the poll instead.
         print(f"vehicle_positions fetch failed: {e}")
-        return set()
+        return None
 
 
 def _scheduled_epoch(hms: str, midnight_ts: int) -> int:
@@ -139,6 +141,9 @@ def store_updates(feed, live_trip_ids=None):
     # One row per (trip, stop, service_date). Each poll UPDATES that row with the
     # latest prediction instead of inserting a new snapshot. Caps table size.
     service_date = today.strftime("%Y-%m-%d")
+    # Forget change-tracking for earlier days, so the dict cannot grow for weeks on a 1 GB server.
+    for key in [k for k in _last_written if k[2] != service_date]:
+        del _last_written[key]
     rows = [(r[0], service_date, r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8])
             for r in raw]
 
@@ -185,6 +190,9 @@ def poll_loop():
         try:
             feed = fetch_trip_updates()
             live_ids = fetch_live_trip_ids()
+            if live_ids is None:
+                time.sleep(POLL_INTERVAL_SECONDS)
+                continue
             n = store_updates(feed, live_ids)
             print(f"[{time.strftime('%H:%M:%S')}] stored {n} updates ({len(live_ids)} with live GPS)")
         except Exception as e:

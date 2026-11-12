@@ -54,3 +54,17 @@ sudo systemctl daemon-reload && sudo systemctl enable --now transit-gtfs-static.
 ```
 
 Check what's loaded: `SELECT min(start_date), max(end_date) FROM calendar;` should include today.
+
+## Update of 2026-11-12: holidays, after-midnight trips, input limits
+
+What changed in `app/`: the timezone is pinned to Australia/Adelaide in `config.py` (it no longer depends on the VM clock setting), `calendar_dates.txt` is loaded so public holidays use the right timetable, `/stop/{id}/next` also returns the previous service day's trips that run past midnight (GTFS times like 25:10:00), arrivals carry `p10_sec` so the frontend can size the "leave early" buffer honestly, query sizes are bounded, `/trip/plan` validates `arrive_by`, CORS only allows GET, and the collector skips a poll instead of writing "no GPS" for every trip when the vehicle feed fails.
+
+To deploy on the VM (about a minute, best outside peak hours):
+
+```bash
+cd /opt/adelaide-transit && git pull
+sudo systemctl restart transit-api transit-collector
+sudo systemctl start transit-gtfs-static.service   # loads calendar_dates once; the Monday timer keeps it fresh
+```
+
+`init_db()` creates the new `calendar_dates` and (empty) `delay_hourly` tables on start, nothing else in the schema changes. Run the tests locally with `cd backend && python -m unittest`.
