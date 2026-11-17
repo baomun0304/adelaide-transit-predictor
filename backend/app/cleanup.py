@@ -2,7 +2,7 @@
 Aggregate old realtime_updates into hourly summaries, then delete raw rows.
 
 Keeps raw rows for the last N days (default 7) for fine-grained queries.
-Everything older becomes one row per (route, stop, hour-of-day, date) — enough
+Everything older becomes one row per (route, stop, hour-of-day, date), enough
 for reliability charts and ML training, ~1000x smaller.
 """
 import time

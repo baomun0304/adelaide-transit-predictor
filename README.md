@@ -1,5 +1,7 @@
 # Adelaide Transit Predictor
 
+[![tests](https://github.com/baomun0304/adelaide-transit-predictor/actions/workflows/ci.yml/badge.svg)](https://github.com/baomun0304/adelaide-transit-predictor/actions/workflows/ci.yml)
+
 Live bus and tram arrivals for Adelaide Metro, with **historical delay patterns** baked in so users know when to actually leave home.
 
 Live: https://adelaide-transit-predictor.vercel.app
@@ -39,10 +41,10 @@ This app collects realtime delay data 24/7, then uses that history to fill in th
 | Layer | Choice | Why |
 |---|---|---|
 | Backend | FastAPI (Python) | Async, auto-docs, lightweight |
-| Database | SQLite (WAL mode) | Single file, multi-process safe, handles 100M+ rows |
+| Database | SQLite (WAL mode) | Single file, multi-process safe, holds the full realtime history on a 1 GB VM |
 | Static feed | GTFS .zip from Adelaide Metro | Industry standard, free, no API key |
 | Realtime feed | GTFS-Realtime protobuf | Same standard, refreshed every 30s |
-| Frontend | Vanilla HTML/JS + Leaflet + Chart.js | No build step, instant loading |
+| Frontend | Vanilla HTML/JS + Leaflet (+ markercluster) + Chart.js | No build step, instant loading |
 | Map tiles | Esri Light Gray Canvas | Free, no API key, quiet enough for stop markers |
 | Hosting | Vercel (frontend), Oracle Cloud VM with systemd (API, collector, weekly timetable reload) | Free tier, runs 24/7 |
 
@@ -54,23 +56,18 @@ All free and public. No API keys.
 - GTFS-RT Trip Updates: `https://gtfs.adelaidemetro.com.au/v1/realtime/trip_updates`
 - GTFS-RT Vehicle Positions: `https://gtfs.adelaidemetro.com.au/v1/realtime/vehicle_positions`
 
-## Quick start (Windows)
+## Run it yourself
 
-```powershell
+```bash
 cd backend
-.\scripts\setup.ps1          # one-time: venv + deps + GTFS download
-.\scripts\run_api.ps1        # terminal 1: API on :8000
-.\scripts\run_collector.ps1  # terminal 2: realtime poller
+python -m venv .venv && . .venv/bin/activate      # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+python -m app.gtfs_static                         # download and load the timetable
+uvicorn app.main:app --port 8000                  # terminal 1: the API
+python -m app.gtfs_realtime                       # terminal 2: the realtime collector
 ```
 
-Then:
-
-```powershell
-cd ..\frontend
-.\serve.ps1                  # static UI on :5173
-```
-
-Open <http://localhost:5173>.
+Then serve `frontend/` with any static server (for example `python -m http.server 5173` inside `frontend/`). The page talks to the hosted API by default; to use your local one, set `DEFAULT_API` near the top of the script in `frontend/index.html`. Windows helper scripts from the early local setup are in `backend/scripts/`.
 
 ## API endpoints
 
@@ -93,14 +90,14 @@ Auto-generated docs at `/docs`.
    - ±1 hour + same day-type: fallback
    - any hour + same day-type: fallback
    - any data: last resort
-4. The chosen bucket returns P25 / P50 / P75 of delay (interquartile, robust to outliers).
+4. The chosen bucket returns the P10, P25, P50 and P75 of delay (percentiles, robust to outliers). P10 sizes the "be early" buffer, because an early bus is the one you miss completely.
 5. Frontend categorises into `on_time / late / early / mixed` and produces wording + a "leave by" time.
 
 Only `has_gps = 1` rows are used for the pattern, schedule-echo rows (no real GPS) are ignored so patterns reflect actual bus behavior, not the timetable.
 
 ## Project status
 
-- **Data collected so far**: only a few days (started May 2026). Patterns will be sparse until ~1 week.
+- **Data collected**: around the clock since May 2026. Raw updates are kept on purpose as training data for a later model.
 - **Live arrivals**: work immediately, no warm-up needed.
 - **Reliability charts**: fill in as data accumulates.
 - **Hosting**: frontend on Vercel, API and collector on a small Oracle Cloud VM. Server notes are in [backend/deploy/README.md](backend/deploy/README.md).
@@ -108,16 +105,8 @@ Only `has_gps = 1` rows are used for the pattern, schedule-echo rows (no real GP
 
 ## Deploy
 
-For a public iPhone-accessible version:
-
-- Frontend → Vercel (drag the `frontend/` folder)
-- Backend → expose local API via Cloudflare Tunnel:
-  ```
-  cloudflared tunnel --url http://localhost:8000
-  ```
-- Update `const API = "..."` in `frontend/index.html` to the tunnel URL.
-
-For 24/7 production, migrate SQLite → Postgres and move the collector to a free-tier VM (Oracle Cloud, Fly.io).
+- Frontend: Vercel serves `frontend/` and redeploys on every push to `main`.
+- Backend: the API, the collector and a weekly timetable reload run as systemd services on a small Oracle Cloud VM, behind HTTPS. How it is set up, the memory limits that keep a 1 GB machine stable, and how to update it are in [backend/deploy/README.md](backend/deploy/README.md).
 
 ## Roadmap
 
