@@ -115,9 +115,11 @@ def list_stops(
             """, (lat - dlat, lat + dlat, lon - dlon, lon + dlon)).fetchall()
         elif q:
             like = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            # An exact stop ID (the number on the stop sign) matches too, and comes first.
             rows = conn.execute(
-                "SELECT * FROM stops WHERE stop_name LIKE ? ESCAPE '\\' LIMIT 100",
-                (f"%{like}%",),
+                "SELECT * FROM stops WHERE stop_id = ? OR stop_name LIKE ? ESCAPE '\\' "
+                "ORDER BY stop_id = ? DESC LIMIT 100",
+                (q, f"%{like}%", q),
             ).fetchall()
         else:
             rows = conn.execute("SELECT * FROM stops LIMIT 100").fetchall()
@@ -215,6 +217,7 @@ def next_arrivals(stop_id: str, limit: int = Query(50, ge=1, le=100)):
             raise HTTPException(404, "stop not found")
 
         candidates = []  # (row, service midnight, is_weekend)
+        last_service = None
         # Yesterday's service day still runs after midnight (GTFS times like 25:10:00).
         for day in (today - timedelta(days=1), today):
             midnight_ts = _service_midnight(day)
@@ -242,6 +245,16 @@ def next_arrivals(stop_id: str, limit: int = Query(50, ge=1, le=100)):
                 LIMIT ?
             """, params).fetchall()
             candidates += [(r, midnight_ts, day.weekday() >= 5) for r in rows]
+            # The real last arrival of the service day, not just the last of the rows fetched above.
+            last = conn.execute(f"""
+                SELECT MAX(st.arrival_time) AS t
+                FROM stop_times st
+                JOIN trips t ON t.trip_id = st.trip_id
+                WHERE st.stop_id = ?
+                  {cal_filter}
+            """, (stop_id,)).fetchone()["t"]
+            if last:
+                last_service = max(last_service or 0, midnight_ts + _parse_hms(last))
 
         # A stored prediction more than 3h from this scheduled instance is not
         # trustworthy (a stale row from an earlier run of the same trip_id, or a
@@ -279,9 +292,15 @@ def next_arrivals(stop_id: str, limit: int = Query(50, ge=1, le=100)):
                 "typical": typical,
             })
 
-    arrivals.sort(key=lambda a: a["predicted_arrival"])
-    last_service = max((a["scheduled_arrival"] for a in arrivals), default=None)
-    arrivals = arrivals[:limit]
+    # Two services can run the same journey on the same day (two trip_ids with the same
+    # route, headsign and time). Show it once, keeping the copy that has live data.
+    best = {}
+    for a in arrivals:
+        k = (a["route_short_name"], a["trip_headsign"], a["scheduled_arrival"])
+        rank = (a["has_gps"], a["delay_seconds"] is not None)
+        if k not in best or rank > best[k][0]:
+            best[k] = (rank, a)
+    arrivals = sorted((a for _, a in best.values()), key=lambda a: a["predicted_arrival"])[:limit]
 
     return {
         "stop": dict(stop),

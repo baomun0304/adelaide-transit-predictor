@@ -36,11 +36,42 @@ class ApiTests(unittest.TestCase):
             conn.execute("INSERT INTO calendar VALUES ('HOLIDAY_OFF', ?,?,?,?,?,?,?, '20000101', '21000101')", cols)
             conn.execute("INSERT INTO calendar_dates VALUES ('HOLIDAY_OFF', ?, 2)", (ymd,))
             conn.execute("INSERT INTO calendar_dates VALUES ('EXTRA', ?, 1)", (ymd,))
-            for trip, service in (("T_RUNS", "RUNS"), ("T_OFF", "HOLIDAY_OFF"), ("T_EXTRA", "EXTRA")):
+            for i, (trip, service) in enumerate((("T_RUNS", "RUNS"), ("T_OFF", "HOLIDAY_OFF"), ("T_EXTRA", "EXTRA"))):
+                t = in_ten + i * 60
                 conn.execute("INSERT INTO trips VALUES (?, 'R1', ?, 'City', 0)", (trip, service))
-                conn.execute("INSERT INTO stop_times VALUES (?, ?, ?, 'S1', 1)", (trip, _hms(in_ten), _hms(in_ten)))
-                conn.execute("INSERT INTO stop_times VALUES (?, ?, ?, 'S2', 2)", (trip, _hms(in_ten + 300), _hms(in_ten + 300)))
+                conn.execute("INSERT INTO stop_times VALUES (?, ?, ?, 'S1', 1)", (trip, _hms(t), _hms(t)))
+                conn.execute("INSERT INTO stop_times VALUES (?, ?, ?, 'S2', 2)", (trip, _hms(t + 300), _hms(t + 300)))
+            # Same route, headsign and time as F0 (below) under another service, and only this copy is live.
+            conn.execute("INSERT INTO trips VALUES ('T_DUP', 'R1', 'EXTRA', 'City', 0)")
+            conn.execute("INSERT INTO stop_times VALUES ('T_DUP', ?, ?, 'S1', 1)", (_hms(in_ten + 600), _hms(in_ten + 600)))
+            dup_epoch = main._service_midnight(today) + in_ten + 600
+            conn.execute(
+                "INSERT INTO realtime_updates (fetched_at, service_date, trip_id, route_id, stop_id, "
+                "scheduled_arrival, predicted_arrival, delay_seconds, has_gps) VALUES (?, ?, 'T_DUP', 'R1', 'S1', ?, ?, 60, 1)",
+                (int(time.time()), today.strftime("%Y-%m-%d"), dup_epoch, dup_epoch + 60))
+            # More trips than the arrivals query fetches, then one late trip that sets the last service.
+            for i in range(20):
+                t = in_ten + 600 + i * 60
+                conn.execute("INSERT INTO trips VALUES (?, 'R1', 'RUNS', 'City', 0)", (f"F{i}",))
+                conn.execute("INSERT INTO stop_times VALUES (?, ?, ?, 'S1', 1)", (f"F{i}", _hms(t), _hms(t)))
+            cls.last_epoch = main._service_midnight(today) + in_ten + 3 * 3600
+            conn.execute("INSERT INTO trips VALUES ('T_LATE', 'R1', 'RUNS', 'City', 0)")
+            conn.execute("INSERT INTO stop_times VALUES ('T_LATE', ?, ?, 'S1', 1)", (_hms(in_ten + 3 * 3600),) * 2)
         cls.client = TestClient(main.app)
+
+    def test_same_journey_under_two_services_shows_once(self):
+        arrivals = self.client.get("/stop/S1/next").json()["arrivals"]
+        keys = [(a["route_short_name"], a["trip_headsign"], a["scheduled_arrival"]) for a in arrivals]
+        self.assertEqual(len(keys), len(set(keys)))
+        trips = {a["trip_id"] for a in arrivals}
+        self.assertIn("T_DUP", trips, "the live copy wins")
+        self.assertNotIn("F0", trips)
+
+    def test_last_service_is_the_real_last_arrival(self):
+        self.assertEqual(self.client.get("/stop/S1/next?limit=1").json()["last_service"], self.last_epoch)
+
+    def test_search_matches_exact_stop_id(self):
+        self.assertEqual([s["stop_id"] for s in self.client.get("/stops?q=S2").json()], ["S2"])
 
     def test_holiday_exceptions_decide_which_trips_run(self):
         trips = {a["trip_id"] for a in self.client.get("/stop/S1/next").json()["arrivals"]}

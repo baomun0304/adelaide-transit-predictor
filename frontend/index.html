@@ -394,7 +394,7 @@
   </div>
   <div class="search-wrap">
     <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-    <input id="search" placeholder="Search stop name..." autocomplete="off" aria-label="Search stop name"
+    <input id="search" placeholder="Search stop name or ID..." autocomplete="off" aria-label="Search stop name or ID"
            aria-controls="search-suggestions" aria-expanded="false" />
     <div id="search-suggestions" hidden></div>
   </div>
@@ -407,7 +407,7 @@
 <main>
   <div class="map-wrap">
     <div id="map"></div>
-    <div class="map-status" id="status"><span class="count">0</span> stops visible · tap any to see arrivals</div>
+    <div class="map-status" id="status"><span class="count">0</span> stops nearby · tap any to see arrivals</div>
   </div>
   <aside id="panel" aria-label="Stops and arrivals">
     <button type="button" class="sheet-toggle" id="sheet-toggle" aria-controls="panel" aria-expanded="true" aria-label="Collapse panel"><span></span></button>
@@ -440,6 +440,7 @@ const SAFETY_SEC = 120;              // always be at the stop 2 min before the b
 const NO_HISTORY_EXTRA_SEC = 60;     // with SAFETY_SEC this is the 3 min buffer used when a route has no history
 const LEAVE_NOW_WINDOW_SEC = 60;
 const FETCH_TIMEOUT_MS = 8000;
+const SLOW_REQUEST_MS = 3000;        // after this, tell the user we're still waiting
 const ARRIVALS_REFRESH_MS = 30000;
 const OFFLINE_RETRY_MS = 30000;
 const MIN_CHART_SAMPLES = 20;
@@ -502,6 +503,7 @@ map.addLayer(stopLayer);
 let currentStop = null;
 let currentMarker = null;
 let reliabilityChart = null;
+let lastReliability = null;  // { stopId, data } behind the chart on screen
 let lastArrivals = null;     // { stopId, data, at } - last good response, kept on screen if a refresh fails
 let routeFilter = null;      // route chip picked in the stop panel, null = all
 let renderedGroups = [];     // cards on screen, so the 1 s ticker can update their boards
@@ -509,18 +511,47 @@ let heroTrips = [];
 let tripByKey = new Map();
 
 // -------- Networking helper: centralises offline detection --------
-let isOffline = false;
+let isOffline = false;             // the server is down, timing out or erroring
+let slowRequests = 0;              // requests running longer than SLOW_REQUEST_MS
+let reliabilityFailedFor = null;   // stop whose delay history failed, reloaded once the server is back
+
+// One banner, most important message wins: no internet, then server down, then slow.
+function updateBanner() {
+  const el = document.getElementById("offline-banner");
+  if (!el) return;
+  const deviceOffline = navigator.onLine === false;
+  el.textContent = deviceOffline ? "You're offline. Times will update when you reconnect."
+    : isOffline ? "Can't reach the server, retrying every 30 s"
+    : "Still loading...";
+  el.hidden = !(deviceOffline || isOffline || slowRequests > 0);
+}
+
 function setOffline(v) {
   if (v === isOffline) return;
   isOffline = v;
-  const el = document.getElementById("offline-banner");
-  if (el) el.hidden = !v;
+  updateBanner();
+  if (!v) recoverAfterOutage();
+}
+
+// The server is back: redraw what failed while it was away.
+function recoverAfterOutage() {
+  lastStopsKey = null;
+  loadStopsInView();
+  if (currentStop && reliabilityFailedFor === currentStop.stop_id) loadReliability(currentStop.stop_id);
 }
 
 async function apiFetch(url) {
+  let slow = false;
+  const slowTimer = setTimeout(() => { slow = true; slowRequests++; updateBanner(); }, SLOW_REQUEST_MS);
   try {
     const r = await fetch(url, { signal: timeoutSignal() });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    // 5xx means the server is in trouble. 4xx (an unknown stop, say) means it answered fine.
+    if (r.status >= 500) throw new Error(`HTTP ${r.status}`);
+    if (!r.ok) {
+      setOffline(false);
+      console.warn("API said no:", url, r.status);
+      return null;
+    }
     const json = await r.json();
     setOffline(false);
     return json;
@@ -528,8 +559,17 @@ async function apiFetch(url) {
     console.warn("API fetch failed:", url, err);
     setOffline(true);
     return null;
+  } finally {
+    clearTimeout(slowTimer);
+    if (slow) { slowRequests--; updateBanner(); }
   }
 }
+window.addEventListener("offline", updateBanner);
+window.addEventListener("online", () => {
+  updateBanner();
+  recoverAfterOutage();
+  if (arrivalsRefresh) arrivalsRefresh();
+});
 
 // -------- Formatting --------
 function fmtTime(ts) {
@@ -603,9 +643,36 @@ function earlyBuffer(a) {
 
 function planTrip(a, stopId, walkMin) {
   const early = earlyBuffer(a);
-  const atStop = a.predicted_arrival - early.sec - SAFETY_SEC;
+  let earliest = a.predicted_arrival - early.sec;
+  let reason = early.reason;
+  // An operator estimate without GPS can be wrong, and the bus may still run to the timetable
+  // (or early, as history shows). Cover that rather than stacking the buffer on the estimate.
+  if (a.has_gps !== 1 && a.delay_seconds != null && a.scheduled_arrival) {
+    const t = a.typical;
+    const low = t ? (t.p10_sec ?? t.p25_sec ?? 0) : 0;
+    const bySchedule = a.scheduled_arrival + Math.min(0, low);
+    if (bySchedule < earliest) {
+      earliest = bySchedule;
+      reason = `The operator estimate says ${fmtOffset(a.delay_seconds)}, but with no GPS it could still come as early as ${fmtTime(bySchedule)}${
+        low < 0 ? " (the timetable, allowing for how early it has run before)" : ", its timetable time"}. Plus a 2 min safety margin.`;
+    }
+  }
+  const atStop = earliest - SAFETY_SEC;
   const leave = walkMin != null ? atStop - walkMin * 60 : atStop;
-  return { a, key: `${a.trip_id}_${stopId}`, pred: a.predicted_arrival, atStop, leave, reason: early.reason };
+  return { a, key: `${a.trip_id}_${stopId}`, pred: a.predicted_arrival, atStop, leave, reason };
+}
+
+// Two services can run the same journey on one day (two trip_ids, same route, headsign
+// and time). Keep one, preferring the copy with live data. The server does this too,
+// but the live server may be an older build.
+function dedupeArrivals(list) {
+  const rank = a => (a.has_gps === 1 ? 2 : 0) + (a.delay_seconds != null ? 1 : 0);
+  const best = new Map();
+  for (const a of list) {
+    const k = `${routeKey(a)}|${a.trip_headsign || ""}|${a.scheduled_arrival}`;
+    if (!best.has(k) || rank(a) > rank(best.get(k))) best.set(k, a);
+  }
+  return [...best.values()].sort((x, y) => x.predicted_arrival - y.predicted_arrival);
 }
 
 function routeKey(a) { return a.route_short_name || a.route_id || "?"; }
@@ -796,9 +863,11 @@ function setUserLocation(lat, lon, accuracy) {
     .bindTooltip("You are here", { className: "stop-tooltip", direction: "top", offset: [0, -10] });
 }
 
+// Location messages go in the stop panel's prompt when it's showing, else briefly in the map pill.
 function setLocMessage(text) {
-  const el = document.querySelector("#loc-cta .loc-msg");
-  if (el) el.textContent = text;
+  const cta = document.getElementById("loc-cta");
+  if (cta && !cta.hidden) { cta.querySelector(".loc-msg").textContent = text; return; }
+  flashStatus(text);
 }
 
 function requestLocation(recenter) {
@@ -820,9 +889,11 @@ function requestLocation(recenter) {
       if (currentStop && currentStop.stop_id === stopId) renderArrivals();
     }
   }, err => {
-    setLocMessage(err.code === 1
+    const cta = document.getElementById("loc-cta");
+    if (err.code !== 1) setLocMessage("Couldn't get your location. Try again.");
+    else setLocMessage(cta && !cta.hidden
       ? "Location is blocked, so times show when to be at the stop."
-      : "Couldn't get your location. Try again.");
+      : "Location is blocked in your browser.");
   }, { enableHighAccuracy: true, maximumAge: 15000, timeout: 15000 });
 }
 
@@ -883,6 +954,24 @@ function renderFavs() {
 const stopCache = new Map();
 let lastStopsKey = null;
 let stopsDebounce = null;
+let stopsStatusHtml = document.getElementById("status").innerHTML;
+let statusTimer = null;
+
+// Show a short message in the map pill for a few seconds, then put the stop count back.
+function flashStatus(text) {
+  const el = document.getElementById("status");
+  el.textContent = text;
+  clearTimeout(statusTimer);
+  statusTimer = setTimeout(() => { statusTimer = null; el.innerHTML = stopsStatusHtml; }, 5000);
+}
+
+// Keep the open stop in the strip of map left above the sheet (and below the map pill).
+function keepStopInView() {
+  if (!currentStop || document.body.classList.contains("sheet-collapsed")) return;
+  const ll = [Number(currentStop.stop_lat), Number(currentStop.stop_lon)];
+  if (!ll.every(Number.isFinite)) return;
+  map.panInside(ll, { paddingTopLeft: [24, 56], paddingBottomRight: [24, 40] });
+}
 
 function scheduleStopsLoad() {
   clearTimeout(stopsDebounce);
@@ -922,8 +1011,8 @@ async function loadStopsInView() {
     });
     stopLayer.addLayer(m);
   });
-  document.getElementById("status").innerHTML =
-    `<span class="count">${stops.length}</span> stops visible · tap any to see arrivals`;
+  stopsStatusHtml = `<span class="count">${stops.length}</span> stops nearby · tap any to see arrivals`;
+  if (!statusTimer) document.getElementById("status").innerHTML = stopsStatusHtml;
 }
 
 function haversineMeters(lat1, lon1, lat2, lon2) {
@@ -992,7 +1081,8 @@ function renderGroup(g, i, walkMin, showMine, myRoute) {
   const idx = g.trips.indexOf(p);
   const after = g.trips.slice(idx + 1, idx + 3);
   const verb = walkMin != null ? "leave" : "at stop";
-  const reason = walkMin != null ? `${walkMin} min walk to the stop. ${p.reason}` : p.reason;
+  const walk = walkCache.ok ? `${walkMin} min walk to the stop.` : `About ${walkMin} min walk (estimate).`;
+  const reason = walkMin != null ? `${walk} ${p.reason}` : p.reason;
   const canRemind = p.leave >= nowSec();
   const mine = g.route === myRoute;
   return `
@@ -1044,7 +1134,7 @@ function renderArrivals() {
   const now = nowSec();
   const stopId = currentStop.stop_id;
   const walkMin = walkMinutesToStop(currentStop);
-  const trips = (lastArrivals.data.arrivals || [])
+  const trips = dedupeArrivals(lastArrivals.data.arrivals || [])
     .filter(a => a.predicted_arrival > now)
     .map(a => planTrip(a, stopId, walkMin));
   tripByKey = new Map(trips.map(t => [t.key, t]));
@@ -1055,7 +1145,9 @@ function renderArrivals() {
   const myRoute = fav ? fav.myRoute : null;
   // Big trip on each card = the next one you can still make, else the next one to arrive.
   const groups = groupTrips(trips).map(g => ({ ...g, primary: g.trips.find(t => t.leave >= now) || g.trips[0] }));
-  groups.sort((x, y) => (y.route === myRoute) - (x.route === myRoute) || x.primary.leave - y.primary.leave);
+  // Ones you can still catch first, then your route, then soonest leave time.
+  groups.sort((x, y) => (y.primary.leave >= now) - (x.primary.leave >= now) ||
+    (y.route === myRoute) - (x.route === myRoute) || x.primary.leave - y.primary.leave);
 
   const routes = [...new Set(groups.map(g => g.route))]
     .sort((x, y) => (y === myRoute) - (x === myRoute) || x.localeCompare(y, undefined, { numeric: true }));
@@ -1065,13 +1157,16 @@ function renderArrivals() {
   const shown = routeFilter ? groups.filter(g => g.route === routeFilter) : groups;
   heroTrips = shown.flatMap(g => g.trips);
   if (!shown.length) {
-    box.innerHTML = '<div class="muted">No more buses scheduled here today.</div>';
+    box.innerHTML = '<div class="muted">No more departures scheduled here today.</div>';
     renderedGroups = [];
     tick();
     return;
   }
-  const summary = `<div class="arrivals-summary">${trips.length} buses in the list${
-    lastArrivals.data.last_service ? ` · last service ${fmtTime(lastArrivals.data.last_service)}` : ""
+  // Older servers work out "last service" from a short list, so it can be too early. Hide it then.
+  const last = lastArrivals.data.last_service;
+  const showLast = last && last >= Math.max(...trips.map(t => t.a.scheduled_arrival || 0));
+  const summary = `<div class="arrivals-summary">${trips.length} ${trips.length === 1 ? "departure" : "departures"} in the list${
+    showLast ? ` · last service ${fmtTime(last)}` : ""
   } · as of ${fmtTime(Math.floor(lastArrivals.at / 1000))}</div>`;
   box.innerHTML = summary + shown.map((g, i) => renderGroup(g, i, walkMin, !!fav, myRoute)).join("");
   renderedGroups = shown.map((g, i) => ({ ...g, el: box.querySelector(`[data-group="${i}"]`) }));
@@ -1133,7 +1228,7 @@ function setSheetCollapsed(collapsed) {
   const btn = document.getElementById("sheet-toggle");
   btn.setAttribute("aria-expanded", String(!collapsed));
   btn.setAttribute("aria-label", collapsed ? "Expand panel" : "Collapse panel");
-  setTimeout(() => map.invalidateSize(), 300);   // the map area changed size
+  setTimeout(() => { map.invalidateSize(); keepStopInView(); }, 300);   // the map area changed size
 }
 
 function showArrivals(stop) {
@@ -1187,10 +1282,19 @@ function showArrivals(stop) {
 async function loadReliability(stopId) {
   const data = await apiFetch(`${API}/stop/${encodeURIComponent(stopId)}/reliability`);
   if (!currentStop || currentStop.stop_id !== stopId) return;
+  const ok = data && Array.isArray(data.by_hour);
+  reliabilityFailedFor = ok ? null : stopId;
+  lastReliability = ok ? { stopId, data } : null;
+  const note = document.getElementById("reliability-note");
+  if (!ok) { if (note) note.textContent = "Couldn't load delay history."; return; }
+  renderReliability(data);
+}
+
+// Draw the chart. Also called on a theme change so the axis colours follow the theme.
+function renderReliability(data) {
   const ctx = document.getElementById("reliabilityChart");
   const note = document.getElementById("reliability-note");
   if (!ctx || !note) return;
-  if (!data || !Array.isArray(data.by_hour)) { note.textContent = "Couldn't load delay history."; return; }
   const used = data.by_hour.filter(d => d.samples >= MIN_CHART_SAMPLES);
   if (!used.length) {
     ctx.closest(".chart-card").hidden = true;
@@ -1256,6 +1360,7 @@ function applyTheme(theme) {
     : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/></svg>';
   baseTiles.setUrl(isDark ? TILE_BASE_DARK : TILE_BASE_LIGHT);
   refTiles.setUrl(isDark ? TILE_REF_DARK : TILE_REF_LIGHT);
+  if (lastReliability && currentStop && lastReliability.stopId === currentStop.stop_id) renderReliability(lastReliability.data);
 }
 function toggleTheme() {
   const current = readTheme();
@@ -1291,7 +1396,7 @@ document.addEventListener("visibilitychange", () => {
   const btn = document.getElementById("sheet-toggle");
   const panel = document.getElementById("panel");
   panel.addEventListener("transitionend", e => {
-    if (e.target === panel && e.propertyName === "height") map.invalidateSize();
+    if (e.target === panel && e.propertyName === "height") { map.invalidateSize(); keepStopInView(); }
   });
   let startY = null, dragged = false;
   btn.addEventListener("pointerdown", e => { startY = e.clientY; dragged = false; });
@@ -1324,6 +1429,11 @@ function closeSuggestions() {
 function renderSuggestions(stopMatches) {
   searchInput.setAttribute("aria-expanded", "true");
   suggBox.hidden = false;
+  if (!stopMatches) {
+    suggBox.innerHTML = `<div class="sugg-empty" role="status">Search isn't working right now. Try again soon.</div>`;
+    activeSuggestions = [];
+    return;
+  }
   if (!stopMatches.length) {
     suggBox.innerHTML = `<div class="sugg-empty" role="status">No stops found.</div>`;
     activeSuggestions = [];
@@ -1355,12 +1465,12 @@ function selectSuggestion(index) {
 searchInput.addEventListener("input", () => {
   const q = searchInput.value.trim();
   clearTimeout(searchDebounce);
-  if (q.length < 3) { closeSuggestions(); return; }
+  if (q.length < 3 && !/^\d{2}$/.test(q)) { closeSuggestions(); return; }   // stop IDs are numbers
   searchDebounce = setTimeout(async () => {
     const myToken = ++searchToken;
-    const stopMatches = (await apiFetch(`${API}/stops?q=${encodeURIComponent(q)}`)) || [];
+    const stopMatches = await apiFetch(`${API}/stops?q=${encodeURIComponent(q)}`);
     if (myToken !== searchToken) return; // a newer keystroke already started a fresher search
-    renderSuggestions(Array.isArray(stopMatches) ? stopMatches.slice(0, 8) : []);
+    renderSuggestions(Array.isArray(stopMatches) ? stopMatches.slice(0, 8) : null);
   }, 300);
 });
 
