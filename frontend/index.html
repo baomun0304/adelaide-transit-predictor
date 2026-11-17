@@ -1162,9 +1162,11 @@ function renderArrivals() {
     tick();
     return;
   }
-  // Older servers work out "last service" from a short list, so it can be too early. Hide it then.
+  // Older servers work out "last service" from a short list, so it can be too early. Only trust it from
+  // the current server (it sends route_type) and when it is not earlier than what is already listed.
   const last = lastArrivals.data.last_service;
-  const showLast = last && last >= Math.max(...trips.map(t => t.a.scheduled_arrival || 0));
+  const newServer = (lastArrivals.data.arrivals || []).some(a => "route_type" in a);
+  const showLast = newServer && last && last >= Math.max(...trips.map(t => t.a.scheduled_arrival || 0));
   const summary = `<div class="arrivals-summary">${trips.length} ${trips.length === 1 ? "departure" : "departures"} in the list${
     showLast ? ` · last service ${fmtTime(last)}` : ""
   } · as of ${fmtTime(Math.floor(lastArrivals.at / 1000))}</div>`;
